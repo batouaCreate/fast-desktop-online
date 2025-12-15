@@ -1,12 +1,91 @@
-import React from 'react';
-import { Bus, Package, Briefcase, TrendingUp } from 'lucide-react';
+import React, { useState } from 'react';
+import { Package, Briefcase, Calendar, RefreshCw, Ticket, DollarSign, Bus } from 'lucide-react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
+import { dashboardApi, DashboardData } from '../services/api';
+import { useToast } from '../contexts/ToastContext';
 
 const Dashboard: React.FC = () => {
+  const { showToast } = useToast();
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+
+  // Fonction pour formater la date au format requis: YYYY-MM-DD HH:mm:ss
+  const formatDateForAPI = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    const hours = String(date.getHours()).padStart(2, '0');
+    const minutes = String(date.getMinutes()).padStart(2, '0');
+    const seconds = String(date.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  };
+
+  const loadDashboard = async () => {
+    try {
+      setLoading(true);
+      const userId = localStorage.getItem('userId');
+      if (!userId) {
+        showToast('error', 'Utilisateur non identifié');
+        return;
+      }
+
+      if (!startDate || !endDate) {
+        showToast('error', 'Veuillez sélectionner une date de début et de fin');
+        return;
+      }
+
+      const response = await dashboardApi.getDashboard({
+        debut: formatDateForAPI(startDate),
+        fin: formatDateForAPI(endDate),
+        user: parseInt(userId),
+      });
+
+      setDashboardData(response.data);
+      showToast('success', 'Données actualisées avec succès');
+    } catch (error: any) {
+      showToast('error', error.message || 'Erreur de chargement du dashboard');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Formatage du chiffre d'affaire avec séparateur de milliers
+  const formatCurrency = (value: number): string => {
+    return value.toLocaleString('fr-FR');
+  };
+
   const stats = [
-    { label: 'Départs aujourd\'hui', value: '24', icon: <Bus size={24} />, color: 'from-blue-500 to-blue-600' },
-    { label: 'Colis en transit', value: '156', icon: <Package size={24} />, color: 'from-purple-500 to-purple-600' },
-    { label: 'Bagages enregistrés', value: '89', icon: <Briefcase size={24} />, color: 'from-green-500 to-green-600' },
-    { label: 'Destinations actives', value: '6', icon: <TrendingUp size={24} />, color: 'from-orange-500 to-orange-600' },
+    {
+      label: 'Colis créés',
+      value: dashboardData ? dashboardData.cptcolis.toString() : '0',
+      subtitle: dashboardData ? `${formatCurrency(dashboardData.colcais ?? 0)} FCFA` : '0 FCFA',
+      icon: <Package size={24} />,
+      color: 'from-blue-500 to-blue-600'
+    },
+    {
+      label: 'Bagages enregistrés',
+      value: dashboardData ? dashboardData.cptbag.toString() : '0',
+      subtitle: dashboardData ? `${formatCurrency(dashboardData.bagcais ?? 0)} FCFA` : '0 FCFA',
+      icon: <Briefcase size={24} />,
+      color: 'from-purple-500 to-purple-600'
+    },
+    {
+      label: 'Tickets vendus',
+      value: dashboardData ? dashboardData.nbtick.toString() : '0',
+      subtitle: dashboardData ? `${formatCurrency(dashboardData.totaltick)} FCFA` : '0 FCFA',
+      icon: <Ticket size={24} />,
+      color: 'from-green-500 to-green-600'
+    },
+    {
+      label: 'Chiffre d\'Affaire',
+      value: dashboardData ? `${formatCurrency(dashboardData.caisse)} FCFA` : '0 FCFA',
+      subtitle: null,
+      icon: <DollarSign size={24} />,
+      color: 'from-orange-500 to-orange-600'
+    },
   ];
 
   return (
@@ -16,6 +95,66 @@ const Dashboard: React.FC = () => {
         <p className="text-gray-600 dark:text-gray-400">Vue d'ensemble de l'activité de la gare</p>
       </div>
 
+      {/* Filtres */}
+      <div className="card mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {/* Date de début */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Date de début
+            </label>
+            <div className="relative">
+              <DatePicker
+                selected={startDate}
+                onChange={(date) => setStartDate(date)}
+                showTimeSelect
+                timeFormat="HH:mm"
+                timeIntervals={15}
+                dateFormat="dd/MM/yyyy HH:mm"
+                placeholderText="Sélectionner la date de début"
+                className="input w-full pl-10"
+                wrapperClassName="w-full"
+              />
+              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
+            </div>
+          </div>
+
+          {/* Date de fin */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Date de fin
+            </label>
+            <div className="relative">
+              <DatePicker
+                selected={endDate}
+                onChange={(date) => setEndDate(date)}
+                showTimeSelect
+                timeFormat="HH:mm"
+                timeIntervals={15}
+                dateFormat="dd/MM/yyyy HH:mm"
+                placeholderText="Sélectionner la date de fin"
+                className="input w-full pl-10"
+                wrapperClassName="w-full"
+                minDate={startDate || undefined}
+              />
+              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
+            </div>
+          </div>
+
+          {/* Bouton Actualiser */}
+          <div className="flex items-end">
+            <button
+              onClick={loadDashboard}
+              disabled={loading}
+              className="btn-primary w-full flex items-center justify-center gap-2"
+            >
+              <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
+              {loading ? 'Actualisation...' : 'Actualiser'}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {stats.map((stat, index) => (
           <div key={index} className="card hover:shadow-soft-lg transition-shadow duration-200">
@@ -23,9 +162,12 @@ const Dashboard: React.FC = () => {
               <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${stat.color} flex items-center justify-center text-white`}>
                 {stat.icon}
               </div>
-              <div>
+              <div className="flex-1">
                 <p className="text-2xl font-bold text-gray-900 dark:text-white">{stat.value}</p>
                 <p className="text-sm text-gray-600 dark:text-gray-400">{stat.label}</p>
+                {stat.subtitle && (
+                  <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">{stat.subtitle}</p>
+                )}
               </div>
             </div>
           </div>
