@@ -1,22 +1,31 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Car, Mail, Lock, Eye, EyeOff } from 'lucide-react';
+import { Car, Phone, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { useAuth } from '../contexts/AuthContext';
+import { useToast } from '../contexts/ToastContext';
 
 const Login: React.FC = () => {
   const navigate = useNavigate();
   const { login } = useAuth();
-  const [email, setEmail] = useState('');
+  const { error: showError, success: showSuccess } = useToast();
+  const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
     try {
-      await login(email, password);
+      await login(phone, password);
+      showSuccess('Connexion réussie', 'Bienvenue sur Fast!');
       navigate('/');
     } catch (error) {
       console.error('Erreur de connexion:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Identifiants invalides';
+      showError('Erreur de connexion', errorMessage);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -39,15 +48,15 @@ const Login: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Email
+                Numéro de téléphone
               </label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                <Phone className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
                 <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="admin@fast.com"
+                  type="tel"
+                  value={phone}
+                  onChange={(e) => setPhone(e.target.value)}
+                  placeholder="0700000001"
                   className="w-full pl-11 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent text-gray-900"
                   required
                 />
@@ -92,8 +101,13 @@ const Login: React.FC = () => {
               </button>
             </div>
 
-            <button type="submit" className="w-full btn-primary">
-              Se connecter
+            <button
+              type="submit"
+              className="w-full btn-primary flex items-center justify-center gap-2"
+              disabled={isLoading}
+            >
+              {isLoading && <Loader2 className="animate-spin" size={20} />}
+              {isLoading ? 'Connexion en cours...' : 'Se connecter'}
             </button>
           </form>
 

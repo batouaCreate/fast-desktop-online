@@ -13,11 +13,13 @@ import Borderaux from './pages/Borderaux';
 import Colis from './pages/Colis';
 import Reception from './pages/Reception';
 import Bagages from './pages/Bagages';
+import Billets from './pages/Billets';
 import Destinations from './pages/Destinations';
 import Settings from './pages/Settings';
 import Chauffeurs from './pages/Chauffeurs';
 import Convoyeurs from './pages/Convoyeurs';
 import Cars from './pages/Cars';
+import PrinterTest from './pages/PrinterTest';
 import "./App.css";
 
 function App() {
@@ -104,6 +106,16 @@ function App() {
               }
             />
             <Route
+              path="/billets"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Billets />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/chauffeurs"
               element={
                 <ProtectedRoute>
@@ -139,6 +151,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Settings />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/printer-test"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <PrinterTest />
                   </Layout>
                 </ProtectedRoute>
               }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserCheck, Phone, Mail, Calendar, IdCard, Plus, Edit, Trash2 } from 'lucide-react';
+import { UserCheck, Phone, Calendar, IdCard, Plus, Edit, Trash2 } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
 import ConfirmModal from '../components/ConfirmModal';
 

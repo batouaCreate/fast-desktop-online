@@ -1,67 +1,124 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { MapPin, Navigation } from 'lucide-react';
+import { destinationApi, Destination } from '../services/api';
+import { useToast } from '../contexts/ToastContext';
+import DestinationFormModal from '../components/DestinationFormModal';
 
 const Destinations: React.FC = () => {
-  const destinations = [
-    { nom: 'Bouaké', code: 'BKE', distance: '348 km', temps: '6h 30min', frequence: '3 trains/jour' },
-    { nom: 'Ferkessédougou', code: 'FRK', distance: '583 km', temps: '11h 00min', frequence: '2 trains/jour' },
-    { nom: 'Yamoussoukro', code: 'YMS', distance: '240 km', temps: '4h 30min', frequence: '2 trains/jour' },
-    { nom: 'Agboville', code: 'AGB', distance: '78 km', temps: '1h 45min', frequence: '4 trains/jour' },
-    { nom: 'Dimbokro', code: 'DMB', distance: '192 km', temps: '3h 45min', frequence: '3 trains/jour' },
-    { nom: 'Ouagadougou', code: 'OUA', distance: '1,145 km', temps: '24h 00min', frequence: '1 train/jour' },
-  ];
+  const [destinations, setDestinations] = useState<Destination[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const { showToast } = useToast();
+
+  useEffect(() => {
+    loadDestinations();
+  }, []);
+
+  const loadDestinations = async () => {
+    try {
+      setLoading(true);
+      const agenceId = localStorage.getItem('agenceId');
+
+      if (!agenceId) {
+        showToast('error', 'Erreur', 'ID de l\'agence non trouvé');
+        return;
+      }
+
+      const response = await destinationApi.loadDest(parseInt(agenceId));
+      setDestinations(response.data);
+    } catch (error: any) {
+      console.error('Erreur lors du chargement des destinations:', error);
+      showToast('error', 'Erreur', error.message || 'Erreur lors du chargement des destinations');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSuccess = () => {
+    loadDestinations();
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-600 mx-auto mb-4"></div>
+          <p className="text-gray-600 dark:text-gray-400">Chargement des destinations...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Destinations</h1>
-          <p className="text-gray-600 dark:text-gray-400">Gestion des destinations desservies</p>
+          <p className="text-gray-600 dark:text-gray-400">
+            Gestion des destinations desservies ({destinations.length} destination{destinations.length > 1 ? 's' : ''})
+          </p>
         </div>
-        <button className="btn-primary">
+        <button className="btn-primary" onClick={() => setIsModalOpen(true)}>
           Nouvelle destination
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {destinations.map((dest, index) => (
-          <div key={index} className="card hover:shadow-soft-lg transition-all duration-200 cursor-pointer">
-            <div className="flex items-start justify-between mb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white">
-                  <MapPin size={24} />
+      {destinations.length === 0 ? (
+        <div className="card text-center py-12">
+          <MapPin size={48} className="mx-auto text-gray-400 mb-4" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            Aucune destination trouvée
+          </h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            Aucune destination n'est configurée pour cette agence.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {destinations.map((dest) => (
+            <div key={dest.dest_id} className="card hover:shadow-soft-lg transition-all duration-200 cursor-pointer">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white">
+                    <MapPin size={24} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">{dest.dest_ville}</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">ID: {dest.dest_id}</p>
+                  </div>
                 </div>
-                <div>
-                  <h3 className="font-semibold text-gray-900 dark:text-white">{dest.nom}</h3>
-                  <p className="text-sm text-gray-600 dark:text-gray-400">Code: {dest.code}</p>
+              </div>
+
+              <div className="space-y-3 pt-4 border-t border-gray-200 dark:border-gray-800">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Prix</span>
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">{dest.dest_price} FCFA</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Créé le</span>
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">
+                    {new Date(dest.dest_create).toLocaleDateString('fr-FR')}
+                  </span>
                 </div>
               </div>
-            </div>
 
-            <div className="space-y-3 pt-4 border-t border-gray-200 dark:border-gray-800">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Distance</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-white">{dest.distance}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Temps de trajet</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-white">{dest.temps}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-gray-600 dark:text-gray-400">Fréquence</span>
-                <span className="text-sm font-medium text-gray-900 dark:text-white">{dest.frequence}</span>
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800 flex gap-2">
+                <button className="flex-1 btn-primary flex items-center justify-center gap-2">
+                  <Navigation size={16} />
+                  Voir l'itinéraire
+                </button>
               </div>
             </div>
+          ))}
+        </div>
+      )}
 
-            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800 flex gap-2">
-              <button className="flex-1 btn-primary flex items-center justify-center gap-2">
-                <Navigation size={16} />
-                Voir l'itinéraire
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+      {/* Modal pour ajouter une destination */}
+      <DestinationFormModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onSuccess={handleSuccess}
+      />
     </div>
   );
 };

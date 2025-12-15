@@ -6,12 +6,14 @@ import {
   Package,
   PackageCheck,
   Briefcase,
+  Ticket,
   MapPin,
   Settings,
   LogOut,
   User,
   UserCheck,
-  Bus
+  Bus,
+  Printer
 } from 'lucide-react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
@@ -48,9 +50,10 @@ const menuSections: MenuSection[] = [
     ]
   },
   {
-    title: 'Bagages',
+    title: 'Bagages & Billets',
     items: [
       { id: 'bagages', label: 'Bagages', icon: <Briefcase size={20} />, path: '/bagages' },
+      { id: 'billets', label: 'Billets', icon: <Ticket size={20} />, path: '/billets' },
     ]
   },
   {
@@ -135,6 +138,15 @@ const Sidebar: React.FC = () => {
               <Settings size={20} />
               <span className="font-medium">Paramètres</span>
             </button>
+            <button
+              onClick={() => navigate('/printer-test')}
+              className={`sidebar-item w-full ${
+                location.pathname === '/printer-test' ? 'active' : ''
+              }`}
+            >
+              <Printer size={20} />
+              <span className="font-medium">Test Imprimante</span>
+            </button>
           </div>
         </div>
       </nav>
@@ -147,7 +159,7 @@ const Sidebar: React.FC = () => {
           </div>
           <div className="flex-1">
             <p className="text-sm font-medium text-gray-900 dark:text-white">{user?.name || 'Utilisateur'}</p>
-            <p className="text-xs text-gray-500 dark:text-gray-400">{user?.email || 'user@fast.com'}</p>
+            <p className="text-xs text-gray-500 dark:text-gray-400">{user?.agence?.name || user?.phone || 'Fast'}</p>
           </div>
         </div>
         <button
