@@ -1,0 +1,40 @@
+# Dockerfile pour compiler l'application Windows depuis n'importe quel OS
+FROM rust:latest
+
+# Installer les dépendances
+RUN apt-get update && apt-get install -y \
+    nodejs \
+    npm \
+    curl \
+    clang \
+    lld \
+    && rm -rf /var/lib/apt/lists/*
+
+# Installer cargo-xwin pour la cross-compilation Windows
+RUN cargo install cargo-xwin
+
+# Ajouter la cible Windows
+RUN rustup target add x86_64-pc-windows-msvc
+
+# Définir le répertoire de travail
+WORKDIR /app
+
+# Copier les fichiers du projet
+COPY package*.json ./
+COPY src-tauri/Cargo.toml src-tauri/Cargo.lock ./src-tauri/
+
+# Installer les dépendances npm
+RUN npm install
+
+# Copier le reste du code
+COPY . .
+
+# Build du frontend
+RUN npm run build
+
+# Build de l'application Windows
+WORKDIR /app/src-tauri
+RUN cargo xwin build --release --target x86_64-pc-windows-msvc
+
+# Le résultat sera dans /app/src-tauri/target/x86_64-pc-windows-msvc/release/fast-app.exe
+CMD ["echo", "Build completed! Executable at: target/x86_64-pc-windows-msvc/release/fast-app.exe"]

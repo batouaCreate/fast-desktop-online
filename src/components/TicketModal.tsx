@@ -364,6 +364,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
         departureStation,
         destination,
         seatNumber,
+        carNumber: ticketData.dep_numcar || undefined,
         price,
         passenger: customerInfo.name || undefined,
         isGratuit, // Passer l'information pour adapter le total
@@ -487,7 +488,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
                   <>
                     {/* Sièges - 3 colonnes à gauche, 2 colonnes à droite */}
                     <div className="space-y-3">
-                      {Array.from({ length: 13 }, (_, i) => i + 1).map(row => {
+                      {Array.from({ length: Math.ceil(departure.dep_place / 5) }, (_, i) => i + 1).map(row => {
                         // Calculer les numéros de sièges pour cette rangée
                         const leftSeats = [1, 2, 3].map(col => (row - 1) * 5 + col);
                         const rightSeats = [4, 5].map(col => (row - 1) * 5 + col);
@@ -496,7 +497,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
                           <div key={row} className="flex gap-3 justify-center">
                             {/* Côté gauche (3 colonnes) */}
                             {leftSeats.map(seatNum => {
-                              if (seatNum > 64) return null; // Ne pas afficher au-delà de 64
+                              if (seatNum > departure.dep_place) return null; // Ne pas afficher au-delà de dep_place
                               const seatNumber = `S${seatNum}`;
                               const seat = seats.find(s => s.number === seatNumber);
                               const seatStatus = seat?.status || 'available';
@@ -524,7 +525,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
 
                             {/* Côté droit (2 colonnes) */}
                             {rightSeats.map(seatNum => {
-                              if (seatNum > 64) return null; // Ne pas afficher au-delà de 64
+                              if (seatNum > departure.dep_place) return null; // Ne pas afficher au-delà de dep_place
                               const seatNumber = `S${seatNum}`;
                               const seat = seats.find(s => s.number === seatNumber);
                               const seatStatus = seat?.status || 'available';

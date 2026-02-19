@@ -330,6 +330,25 @@ export interface CreateDepartureResponse {
   msg: string;
 }
 
+export interface UpdateDepartureRequest {
+  depid: number;
+  user: number;
+  place: number;
+  car: string;
+  chauff: string;
+  conv: string;
+  fraisroute: number;
+  lavage: number;
+  carbur: number;
+  droitgare: number;
+  autredep: number;
+}
+
+export interface UpdateDepartureResponse {
+  status: number;
+  msg: string;
+}
+
 export interface CreateColisRequest {
   user: number;
   depart: number;
@@ -533,6 +552,49 @@ export const departureApi = {
       return data as CreateDepartureResponse;
     } catch (error: any) {
       console.error('❌ Erreur API création départ:', error);
+      throw {
+        message: error.message || 'Erreur de connexion au serveur',
+        status: error.status,
+      } as ApiError;
+    }
+  },
+
+  async updateDeparture(request: UpdateDepartureRequest): Promise<UpdateDepartureResponse> {
+    try {
+      console.log('✏️ Mise à jour du départ:', request);
+
+      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.updateDepart}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(request),
+      });
+
+      console.log('📡 Réponse HTTP mise à jour départ:', { status: response.status, ok: response.ok });
+
+      if (!response.ok) {
+        throw {
+          message: `Erreur de mise à jour du départ: ${response.statusText}`,
+          status: response.status,
+        } as ApiError;
+      }
+
+      const data = await response.json();
+      console.log('📦 Réponse mise à jour départ:', data);
+
+      // Vérifier si la réponse contient un statut d'erreur
+      if (data.status !== 200) {
+        throw {
+          message: data.msg || 'Erreur de mise à jour du départ',
+          status: data.status,
+        } as ApiError;
+      }
+
+      console.log('✅ Départ mis à jour avec succès:', data.msg);
+      return data as UpdateDepartureResponse;
+    } catch (error: any) {
+      console.error('❌ Erreur API mise à jour départ:', error);
       throw {
         message: error.message || 'Erreur de connexion au serveur',
         status: error.status,

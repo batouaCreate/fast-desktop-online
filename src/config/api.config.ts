@@ -5,6 +5,7 @@ export const API_CONFIG = {
     loadAllDepartures: '/loadalldep',
     loadGareDest: '/loadgaredest',
     addDepart: '/adddepart',
+    updateDepart: '/updatedepart',
     colisByUser: '/colisbyuser',
     createColis: '/createcolis_v2',
     bagageByUser: '/bagagebyuser',

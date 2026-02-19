@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Package, Briefcase, Calendar, RefreshCw, Ticket, DollarSign, Bus } from 'lucide-react';
 import DatePicker from 'react-datepicker';
 import 'react-datepicker/dist/react-datepicker.css';
-import { dashboardApi, DashboardData } from '../services/api';
+import { dashboardApi, DashboardData, departureApi, Departure, colisApi, Colis } from '../services/api';
 import { useToast } from '../contexts/ToastContext';
 
 const Dashboard: React.FC = () => {
@@ -11,6 +11,8 @@ const Dashboard: React.FC = () => {
   const [endDate, setEndDate] = useState<Date | null>(null);
   const [loading, setLoading] = useState(false);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [derniersDepartures, setDerniersDepartures] = useState<Departure[]>([]);
+  const [derniersColis, setDerniersColis] = useState<Colis[]>([]);
 
   // Fonction pour formater la date au format requis: YYYY-MM-DD HH:mm:ss
   const formatDateForAPI = (date: Date): string => {
@@ -21,6 +23,35 @@ const Dashboard: React.FC = () => {
     const minutes = String(date.getMinutes()).padStart(2, '0');
     const seconds = String(date.getSeconds()).padStart(2, '0');
     return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  };
+
+  const loadDerniersDepartures = async () => {
+    try {
+      const userId = localStorage.getItem('userId');
+      if (!userId) return;
+
+      const response = await departureApi.loadAllDepartures(parseInt(userId));
+      // Prendre seulement les 5 derniers départs
+      const derniers = response.data.slice(0, 5);
+      setDerniersDepartures(derniers);
+    } catch (error: any) {
+      console.error('Erreur lors du chargement des derniers départs:', error);
+    }
+  };
+
+  const loadDerniersColis = async () => {
+    try {
+      const userId = localStorage.getItem('userId');
+      if (!userId) return;
+
+      // Charger les colis sans filtre de recherche et sans date spécifique
+      const response = await colisApi.colisByUser(parseInt(userId), '', '');
+      // Prendre seulement les 5 derniers colis
+      const derniers = response.data.slice(0, 5);
+      setDerniersColis(derniers);
+    } catch (error: any) {
+      console.error('Erreur lors du chargement des derniers colis:', error);
+    }
   };
 
   const loadDashboard = async () => {
@@ -51,6 +82,11 @@ const Dashboard: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadDerniersDepartures();
+    loadDerniersColis();
+  }, []);
 
   // Formatage du chiffre d'affaire avec séparateur de milliers
   const formatCurrency = (value: number): string => {
@@ -178,57 +214,66 @@ const Dashboard: React.FC = () => {
         <div className="card">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Derniers départs</h2>
           <div className="space-y-3">
-            {[
-              { destination: 'Bouaké', heure: '07:30', quai: '1', status: 'À l\'heure' },
-              { destination: 'Ferkessédougou', heure: '08:45', quai: '2', status: 'Retard 15min' },
-              { destination: 'Agboville', heure: '10:15', quai: '3', status: 'À l\'heure' },
-            ].map((depart, index) => (
-              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <Bus size={18} className="text-primary-500" />
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-white">{depart.destination}</p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">Quai {depart.quai}</p>
+            {derniersDepartures.length === 0 ? (
+              <div className="text-center py-8">
+                <Bus size={40} className="mx-auto text-gray-400 mb-2" />
+                <p className="text-gray-600 dark:text-gray-400">Aucun départ disponible</p>
+              </div>
+            ) : (
+              derniersDepartures.map((depart) => (
+                <div key={depart.dep_id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <Bus size={18} className="text-primary-500" />
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-white">{depart.agdest}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">Car {depart.dep_numcar}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium text-gray-900 dark:text-white">{depart.dep_heure}</p>
+                    <p className={`text-sm ${depart.nbtick > 0 ? 'text-green-500' : 'text-gray-500'}`}>
+                      {depart.nbtick}/{depart.dep_place} places
+                    </p>
                   </div>
                 </div>
-                <div className="text-right">
-                  <p className="font-medium text-gray-900 dark:text-white">{depart.heure}</p>
-                  <p className={`text-sm ${depart.status.includes('Retard') ? 'text-orange-500' : 'text-green-500'}`}>
-                    {depart.status}
-                  </p>
-                </div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
 
         <div className="card">
-          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Activité des colis</h2>
+          <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Derniers colis</h2>
           <div className="space-y-3">
-            {[
-              { id: '#COL-1234', status: 'En attente', heure: '09:45' },
-              { id: '#COL-1235', status: 'En transit', heure: '10:20' },
-              { id: '#COL-1236', status: 'Livré', heure: '11:00' },
-            ].map((colis, index) => (
-              <div key={index} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
-                <div className="flex items-center gap-3">
-                  <Package size={18} className="text-primary-500" />
-                  <div>
-                    <p className="font-medium text-gray-900 dark:text-white">{colis.id}</p>
-                    <p className="text-sm text-gray-600 dark:text-gray-400">{colis.heure}</p>
+            {derniersColis.length === 0 ? (
+              <div className="text-center py-8">
+                <Package size={40} className="mx-auto text-gray-400 mb-2" />
+                <p className="text-gray-600 dark:text-gray-400">Aucun colis disponible</p>
+              </div>
+            ) : (
+              derniersColis.map((colis) => (
+                <div key={colis.exp_id} className="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-800 rounded-xl">
+                  <div className="flex items-center gap-3">
+                    <Package size={18} className="text-primary-500" />
+                    <div>
+                      <p className="font-medium text-gray-900 dark:text-white">{colis.exp_code}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400">{colis.exp_exp} → {colis.exp_dest}</p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-medium text-gray-900 dark:text-white">{colis.agdest}</p>
+                    <span className={`px-3 py-1 rounded-lg text-sm font-medium ${
+                      colis.exp_stat === 2
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                        : colis.exp_stat === 1
+                        ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
+                        : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
+                    }`}>
+                      {colis.exp_stat === 2 ? 'Livré' : colis.exp_stat === 1 ? 'En transit' : 'En attente'}
+                    </span>
                   </div>
                 </div>
-                <span className={`px-3 py-1 rounded-lg text-sm font-medium ${
-                  colis.status === 'Livré'
-                    ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                    : colis.status === 'En transit'
-                    ? 'bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-300'
-                    : 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300'
-                }`}>
-                  {colis.status}
-                </span>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
       </div>

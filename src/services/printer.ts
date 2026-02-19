@@ -163,22 +163,33 @@ export class TicketBuilder {
     departureStation: string;
     destination: string;
     seatNumber: string;
+    carNumber?: string;
     price: string;
     passenger?: string;
     isGratuit?: boolean;
   }): TicketData {
+    const items: TicketItem[] = [
+      { label: 'Num Ticket', value: data.ticketNumber },
+      { label: 'Depart', value: data.departure },
+      { label: 'Date', value: data.date },
+      { label: 'Heure', value: data.time },
+      { label: 'Gare depart', value: data.departureStation },
+      { label: 'Destination', value: data.destination },
+    ];
+
+    // Ajouter le numéro de car s'il est fourni
+    if (data.carNumber) {
+      items.push({ label: 'Num Car', value: data.carNumber });
+    }
+
+    items.push(
+      { label: 'Siege', value: data.seatNumber },
+      { label: 'Prix', value: data.price }
+    );
+
     return {
       title: 'TICKET DE TRANSPORT',
-      items: [
-        { label: 'Num Ticket', value: data.ticketNumber },
-        { label: 'Depart', value: data.departure },
-        { label: 'Date', value: data.date },
-        { label: 'Heure', value: data.time },
-        { label: 'Gare depart', value: data.departureStation },
-        { label: 'Destination', value: data.destination },
-        { label: 'Siege', value: data.seatNumber },
-        { label: 'Prix', value: data.price },
-      ],
+      items,
       // Si c'est gratuit, afficher "GRATUIT" au lieu du total
       total: data.isGratuit ? 'GRATUIT' : `TOTAL: ${data.price}`,
       footer: [
