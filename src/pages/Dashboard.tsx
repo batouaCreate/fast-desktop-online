@@ -7,8 +7,22 @@ import { useToast } from '../contexts/ToastContext';
 
 const Dashboard: React.FC = () => {
   const { showToast } = useToast();
-  const [startDate, setStartDate] = useState<Date | null>(null);
-  const [endDate, setEndDate] = useState<Date | null>(null);
+
+  // Initialiser les dates avec aujourd'hui
+  const getTodayStart = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  };
+
+  const getTodayEnd = () => {
+    const today = new Date();
+    today.setHours(23, 59, 59, 999);
+    return today;
+  };
+
+  const [startDate, setStartDate] = useState<Date | null>(getTodayStart());
+  const [endDate, setEndDate] = useState<Date | null>(getTodayEnd());
   const [loading, setLoading] = useState(false);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [derniersDepartures, setDerniersDepartures] = useState<Departure[]>([]);
@@ -54,7 +68,7 @@ const Dashboard: React.FC = () => {
     }
   };
 
-  const loadDashboard = async () => {
+  const loadDashboard = async (showSuccessToast: boolean = true) => {
     try {
       setLoading(true);
       const userId = localStorage.getItem('userId');
@@ -75,7 +89,9 @@ const Dashboard: React.FC = () => {
       });
 
       setDashboardData(response.data);
-      showToast('success', 'Données actualisées avec succès');
+      if (showSuccessToast) {
+        showToast('success', 'Données actualisées avec succès');
+      }
     } catch (error: any) {
       showToast('error', error.message || 'Erreur de chargement du dashboard');
     } finally {
@@ -86,6 +102,8 @@ const Dashboard: React.FC = () => {
   useEffect(() => {
     loadDerniersDepartures();
     loadDerniersColis();
+    // Charger automatiquement le dashboard avec les dates du jour (sans toast de succès)
+    loadDashboard(false);
   }, []);
 
   // Formatage du chiffre d'affaire avec séparateur de milliers
