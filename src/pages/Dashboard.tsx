@@ -198,7 +198,7 @@ const Dashboard: React.FC = () => {
           {/* Bouton Actualiser */}
           <div className="flex items-end">
             <button
-              onClick={loadDashboard}
+              onClick={() => loadDashboard()}
               disabled={loading}
               className="btn-primary w-full flex items-center justify-center gap-2"
             >
