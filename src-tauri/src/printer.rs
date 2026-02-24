@@ -3,10 +3,158 @@ use std::process::Command;
 use image::GenericImageView;
 use base64::{Engine as _, engine::general_purpose};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 use std::fs::OpenOptions;
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 use std::io::Write;
+
+// Fonction helper pour l'impression RAW sur Windows
+#[cfg(target_os = "windows")]
+fn print_raw_windows(printer_name: &str, data: &[u8]) -> Result<(), String> {
+    use windows::core::PWSTR;
+    use windows::Win32::Foundation::{HANDLE, GetLastError};
+    use windows::Win32::Graphics::Printing::{
+        OpenPrinterW, StartDocPrinterW, StartPagePrinter, WritePrinter,
+        EndPagePrinter, EndDocPrinter, ClosePrinter, DOC_INFO_1W,
+    };
+
+    eprintln!("🖨️ === DÉBUT IMPRESSION RAW WINDOWS ===");
+    eprintln!("🖨️ Imprimante: '{}'", printer_name);
+    eprintln!("📊 Taille des données: {} octets", data.len());
+    eprintln!("🔍 Premiers 50 octets: {:?}", &data[..data.len().min(50)]);
+
+    unsafe {
+        // Convertir le nom de l'imprimante en UTF-16
+        let printer_name_wide: Vec<u16> = printer_name.encode_utf16().chain(std::iter::once(0)).collect();
+        let mut printer_handle: HANDLE = HANDLE::default();
+
+        // Ouvrir l'imprimante
+        eprintln!("🔓 Tentative d'ouverture de l'imprimante '{}'...", printer_name);
+        if let Err(e) = OpenPrinterW(
+            PWSTR(printer_name_wide.as_ptr() as *mut _),
+            &mut printer_handle,
+            None,
+        ) {
+            let error_code = GetLastError();
+            eprintln!("❌ ERREUR OpenPrinterW: {:?}", e);
+            eprintln!("❌ Code erreur Windows: {:?}", error_code);
+            return Err(format!(
+                "Impossible d'ouvrir l'imprimante '{}': {:?} (Code: {:?}). Vérifiez que le nom est exact (sensible à la casse).",
+                printer_name, e, error_code
+            ));
+        }
+
+        eprintln!("✅ Imprimante ouverte avec handle: {:?}", printer_handle);
+
+        // Préparer les informations du document
+        let doc_name: Vec<u16> = "ESC/POS Ticket".encode_utf16().chain(std::iter::once(0)).collect();
+        let doc_type: Vec<u16> = "RAW".encode_utf16().chain(std::iter::once(0)).collect();
+
+        eprintln!("📋 Type de document: RAW (impression directe)");
+
+        let mut doc_info = DOC_INFO_1W {
+            pDocName: PWSTR(doc_name.as_ptr() as *mut _),
+            pOutputFile: PWSTR(std::ptr::null_mut()),
+            pDatatype: PWSTR(doc_type.as_ptr() as *mut _),
+        };
+
+        // Démarrer le document
+        eprintln!("📄 Démarrage du document...");
+        let doc_id = StartDocPrinterW(printer_handle, 1, &mut doc_info as *mut _ as *mut _);
+        if doc_id == 0 {
+            let error_code = GetLastError();
+            eprintln!("❌ ERREUR StartDocPrinterW - Code: {:?}", error_code);
+            let _ = ClosePrinter(printer_handle);
+            return Err(format!(
+                "Impossible de démarrer le document d'impression (Code: {:?}). L'imprimante supporte-t-elle le mode RAW ?",
+                error_code
+            ));
+        }
+
+        eprintln!("✅ Document démarré (ID: {})", doc_id);
+
+        // Démarrer la page
+        eprintln!("📃 Démarrage de la page...");
+        let page_result = StartPagePrinter(printer_handle);
+        if !page_result.as_bool() {
+            let error_code = GetLastError();
+            eprintln!("❌ ERREUR StartPagePrinter - Code: {:?}", error_code);
+            let _ = EndDocPrinter(printer_handle);
+            let _ = ClosePrinter(printer_handle);
+            return Err(format!("Impossible de démarrer la page (Code: {:?})", error_code));
+        }
+
+        eprintln!("✅ Page démarrée");
+
+        // Écrire les données
+        eprintln!("✍️ Écriture de {} octets vers l'imprimante...", data.len());
+        let mut bytes_written: u32 = 0;
+        let write_result = WritePrinter(
+            printer_handle,
+            data.as_ptr() as *const _,
+            data.len() as u32,
+            &mut bytes_written,
+        );
+
+        if !write_result.as_bool() {
+            let error_code = GetLastError();
+            eprintln!("❌ ERREUR WritePrinter - Code: {:?}", error_code);
+            eprintln!("❌ Octets écrits avant erreur: {}", bytes_written);
+            let _ = EndPagePrinter(printer_handle);
+            let _ = EndDocPrinter(printer_handle);
+            let _ = ClosePrinter(printer_handle);
+            return Err(format!(
+                "Erreur lors de l'écriture des données (Code: {:?}). {} octets écrits sur {}",
+                error_code, bytes_written, data.len()
+            ));
+        }
+
+        eprintln!("✅ {} octets écrits sur {} (100%)", bytes_written, data.len());
+
+        if bytes_written != data.len() as u32 {
+            eprintln!("⚠️ ATTENTION: Tous les octets n'ont pas été écrits! ({}/{})", bytes_written, data.len());
+        }
+
+        // Terminer la page
+        eprintln!("🏁 Fin de la page...");
+        let end_page_result = EndPagePrinter(printer_handle);
+        if !end_page_result.as_bool() {
+            let error_code = GetLastError();
+            eprintln!("❌ ERREUR EndPagePrinter - Code: {:?}", error_code);
+            let _ = EndDocPrinter(printer_handle);
+            let _ = ClosePrinter(printer_handle);
+            return Err(format!("Impossible de terminer la page (Code: {:?})", error_code));
+        }
+
+        eprintln!("✅ Page terminée");
+
+        // Terminer le document
+        eprintln!("🏁 Fin du document...");
+        let end_doc_result = EndDocPrinter(printer_handle);
+        if !end_doc_result.as_bool() {
+            let error_code = GetLastError();
+            eprintln!("❌ ERREUR EndDocPrinter - Code: {:?}", error_code);
+            let _ = ClosePrinter(printer_handle);
+            return Err(format!("Impossible de terminer le document (Code: {:?})", error_code));
+        }
+
+        eprintln!("✅ Document terminé");
+
+        // Fermer l'imprimante
+        eprintln!("🔒 Fermeture de l'imprimante...");
+        if let Err(e) = ClosePrinter(printer_handle) {
+            let error_code = GetLastError();
+            eprintln!("⚠️ Avertissement: Erreur lors de la fermeture de l'imprimante: {:?} (Code: {:?})", e, error_code);
+        } else {
+            eprintln!("✅ Imprimante fermée");
+        }
+
+        eprintln!("🎉 === IMPRESSION TERMINÉE AVEC SUCCÈS ===");
+        eprintln!("");
+
+        Ok(())
+    }
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TicketData {
@@ -380,13 +528,15 @@ pub fn print_stub_and_ticket(
         return Ok("Souche et ticket imprimés avec succès".to_string());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        let printer_path = if cfg!(target_os = "windows") {
-            format!("\\\\.\\{}", printer_name)
-        } else {
-            format!("/dev/usb/{}", printer_name)
-        };
+        print_raw_windows(&printer_name, &commands)?;
+        return Ok("Souche et ticket imprimés avec succès".to_string());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let printer_path = format!("/dev/usb/{}", printer_name);
 
         let mut file = OpenOptions::new()
             .write(true)
@@ -438,13 +588,15 @@ pub fn print_ticket(
         return Ok("Ticket imprimé avec succès".to_string());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        let printer_path = if cfg!(target_os = "windows") {
-            format!("\\\\.\\{}", printer_name)
-        } else {
-            format!("/dev/usb/{}", printer_name)
-        };
+        print_raw_windows(&printer_name, &commands)?;
+        return Ok("Ticket imprimé avec succès".to_string());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let printer_path = format!("/dev/usb/{}", printer_name);
 
         let mut file = OpenOptions::new()
             .write(true)
@@ -665,13 +817,15 @@ pub fn print_raw_data(printer_name: String, data: Vec<u8>) -> Result<String, Str
         return Ok("Données envoyées avec succès".to_string());
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        let printer_path = if cfg!(target_os = "windows") {
-            format!("\\\\.\\{}", printer_name)
-        } else {
-            format!("/dev/usb/{}", printer_name)
-        };
+        print_raw_windows(&printer_name, &data)?;
+        return Ok("Données envoyées avec succès".to_string());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        let printer_path = format!("/dev/usb/{}", printer_name);
 
         let mut file = OpenOptions::new()
             .write(true)
