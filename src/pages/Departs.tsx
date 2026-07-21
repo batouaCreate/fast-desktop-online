@@ -1,23 +1,41 @@
 import React, { useState, useEffect } from 'react';
-import { Bus, Clock, MapPin, Loader2, RefreshCw, Edit, X, DollarSign } from 'lucide-react';
+import { Bus, Clock, MapPin, Loader2, RefreshCw, Edit, X, DollarSign, Calendar } from 'lucide-react';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import TicketModal from '../components/TicketModal';
 import DepartureFormModal from '../components/DepartureFormModal';
-import { departureApi, Departure } from '../services/api';
+import { departureApi, DepartureV2 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 
 const Departs: React.FC = () => {
-  const [selectedDeparture, setSelectedDeparture] = useState<Departure | null>(null);
+  // Initialiser les dates: aujourd'hui (J+0) jusqu'à dans 7 jours (J+7)
+  const getTodayStart = () => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return today;
+  };
+
+  const getSevenDaysLater = () => {
+    const sevenDays = new Date();
+    sevenDays.setDate(sevenDays.getDate() + 7);
+    sevenDays.setHours(23, 59, 59, 999);
+    return sevenDays;
+  };
+
+  const [selectedDeparture, setSelectedDeparture] = useState<DepartureV2 | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [departs, setDeparts] = useState<Departure[]>([]);
+  const [departs, setDeparts] = useState<DepartureV2[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [startDate, setStartDate] = useState<Date | null>(getTodayStart());
+  const [endDate, setEndDate] = useState<Date | null>(getSevenDaysLater());
   const { user } = useAuth();
   const { error: showError, showToast } = useToast();
 
   // États pour le modal de modification
   const [showEditModal, setShowEditModal] = useState(false);
-  const [editingDeparture, setEditingDeparture] = useState<Departure | null>(null);
+  const [editingDeparture, setEditingDeparture] = useState<DepartureV2 | null>(null);
   const [editForm, setEditForm] = useState({
     place: 0,
     car: '',
@@ -28,7 +46,7 @@ const Departs: React.FC = () => {
 
   // États pour le modal de frais
   const [showFraisModal, setShowFraisModal] = useState(false);
-  const [editingFraisDeparture, setEditingFraisDeparture] = useState<Departure | null>(null);
+  const [editingFraisDeparture, setEditingFraisDeparture] = useState<DepartureV2 | null>(null);
   const [fraisForm, setFraisForm] = useState({
     fraisroute: 0,
     lavage: 0,
@@ -39,12 +57,13 @@ const Departs: React.FC = () => {
   const [updatingFrais, setUpdatingFrais] = useState(false);
 
   const loadDeparts = async () => {
-    if (!user) return;
+    const agencyId = localStorage.getItem('agenceId');
+    if (!agencyId) return;
 
     try {
       setIsLoading(true);
-      const response = await departureApi.loadAllDepartures(parseInt(user.id));
-      setDeparts(response.data);
+      const data = await departureApi.getByAgency(parseInt(agencyId));
+      setDeparts(data);
     } catch (error) {
       console.error('Erreur lors du chargement des départs:', error);
       showError('Erreur', 'Impossible de charger les départs');
@@ -57,19 +76,19 @@ const Departs: React.FC = () => {
     loadDeparts();
   }, [user]);
 
-  const handleVendreTicket = (depart: Departure) => {
+  const handleVendreTicket = (depart: DepartureV2) => {
     setSelectedDeparture(depart);
     setIsModalOpen(true);
   };
 
   // Fonction pour ouvrir le modal de modification
-  const handleEditClick = (departure: Departure) => {
+  const handleEditClick = (departure: DepartureV2) => {
     setEditingDeparture(departure);
     setEditForm({
-      place: departure.dep_place,
-      car: departure.dep_numcar,
-      chauff: departure.dep_chauff,
-      conv: departure.dep_conv,
+      place: departure.totalSeats ?? 0,
+      car: departure.carNumber ?? '',
+      chauff: departure.driver ?? '',
+      conv: departure.convoyeur ?? '',
     });
     setShowEditModal(true);
   };
@@ -98,7 +117,7 @@ const Departs: React.FC = () => {
       }
 
       await departureApi.updateDeparture({
-        depid: editingDeparture.dep_id,
+        depid: editingDeparture.id,
         user: parseInt(user.id),
         place: editForm.place,
         car: editForm.car,
@@ -124,14 +143,14 @@ const Departs: React.FC = () => {
   };
 
   // Fonction pour ouvrir le modal de frais
-  const handleFraisClick = (departure: Departure) => {
+  const handleFraisClick = (departure: DepartureV2) => {
     setEditingFraisDeparture(departure);
     setFraisForm({
-      fraisroute: departure.dep_fraisroute || 0,
-      lavage: departure.dep_lavage || 0,
-      carbur: departure.dep_carbur || 0,
-      droitgare: departure.dep_droitgare || 0,
-      autredep: departure.dep_autredep || 0,
+      fraisroute: departure.roadFees ?? 0,
+      lavage: departure.washingFees ?? 0,
+      carbur: departure.fuelFees ?? 0,
+      droitgare: departure.stationFees ?? 0,
+      autredep: departure.otherFees ?? 0,
     });
     setShowFraisModal(true);
   };
@@ -161,12 +180,12 @@ const Departs: React.FC = () => {
       }
 
       await departureApi.updateDeparture({
-        depid: editingFraisDeparture.dep_id,
+        depid: editingFraisDeparture.id,
         user: parseInt(user.id),
-        place: editingFraisDeparture.dep_place,
-        car: editingFraisDeparture.dep_numcar,
-        chauff: editingFraisDeparture.dep_chauff,
-        conv: editingFraisDeparture.dep_conv,
+        place: editingFraisDeparture.totalSeats ?? 0,
+        car: editingFraisDeparture.carNumber ?? '',
+        chauff: editingFraisDeparture.driver ?? '',
+        conv: editingFraisDeparture.convoyeur ?? '',
         fraisroute: fraisForm.fraisroute,
         lavage: fraisForm.lavage,
         carbur: fraisForm.carbur,
@@ -188,140 +207,232 @@ const Departs: React.FC = () => {
 
   return (
     <div>
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Départs</h1>
-          <p className="text-gray-600 dark:text-gray-400">
-            {isLoading ? 'Chargement...' : `${departs.length} départ(s) disponible(s)`}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            onClick={loadDeparts}
-            disabled={isLoading}
-            className="btn-secondary flex items-center gap-2"
-          >
-            <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
-            Actualiser
-          </button>
-          <button
-            onClick={() => setIsCreateModalOpen(true)}
-            className="btn-primary"
-          >
-            Nouveau départ
-          </button>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Départs</h1>
+        <p className="text-gray-600 dark:text-gray-400">
+          {isLoading ? 'Chargement...' : `${departs.length} départ(s) disponible(s)`}
+        </p>
+      </div>
+
+      {/* Filtres */}
+      <div className="card mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          {/* Date de début */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Date de début
+            </label>
+            <div className="relative">
+              <DatePicker
+                selected={startDate}
+                onChange={(date) => setStartDate(date)}
+                showTimeSelect
+                timeFormat="HH:mm"
+                timeIntervals={15}
+                dateFormat="dd/MM/yyyy HH:mm"
+                placeholderText="Sélectionner la date de début"
+                className="input w-full pl-10"
+                wrapperClassName="w-full"
+              />
+              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
+            </div>
+          </div>
+
+          {/* Date de fin */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Date de fin
+            </label>
+            <div className="relative">
+              <DatePicker
+                selected={endDate}
+                onChange={(date) => setEndDate(date)}
+                showTimeSelect
+                timeFormat="HH:mm"
+                timeIntervals={15}
+                dateFormat="dd/MM/yyyy HH:mm"
+                placeholderText="Sélectionner la date de fin"
+                className="input w-full pl-10"
+                wrapperClassName="w-full"
+                minDate={startDate || undefined}
+              />
+              <Calendar className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" size={18} />
+            </div>
+          </div>
+
+          {/* Bouton Actualiser */}
+          <div className="flex items-end">
+            <button
+              onClick={loadDeparts}
+              disabled={isLoading}
+              className="btn-primary w-full flex items-center justify-center gap-2"
+            >
+              <RefreshCw size={18} className={isLoading ? 'animate-spin' : ''} />
+              {isLoading ? 'Actualisation...' : 'Actualiser'}
+            </button>
+          </div>
+
+          {/* Bouton Nouveau départ */}
+          <div className="flex items-end">
+            <button
+              onClick={() => setIsCreateModalOpen(true)}
+              className="btn-primary w-full"
+            >
+              Nouveau départ
+            </button>
+          </div>
         </div>
       </div>
 
-      <div className="card">
-        {isLoading ? (
+      {isLoading ? (
+        <div className="card">
           <div className="flex items-center justify-center py-12">
             <Loader2 className="animate-spin text-primary-500" size={40} />
           </div>
-        ) : departs.length === 0 ? (
-          <div className="text-center py-12">
-            <Bus size={48} className="mx-auto text-gray-400 mb-4" />
-            <p className="text-gray-600 dark:text-gray-400">Aucun départ disponible</p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead className="border-b border-gray-200 dark:border-gray-800">
-                <tr>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Car</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Nom</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Destination</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Date</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Heure</th>
-                  {/* <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Places</th> */}
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Tickets</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Chauffeur</th>
-                  <th className="text-left py-4 px-4 text-sm font-semibold text-gray-700 dark:text-gray-300">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {departs.map((depart) => (
-                  <tr key={depart.dep_id} className="border-b border-gray-100 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-2">
-                        <Bus size={18} className="text-primary-500" />
-                        <span className="font-medium text-gray-900 dark:text-white">{depart.dep_numcar}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className="text-gray-900 dark:text-white">{depart.dep_nom}</span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-2">
-                        <MapPin size={16} className="text-gray-400" />
-                        <span className="text-gray-900 dark:text-white">{depart.agdest}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className="text-gray-900 dark:text-white">{depart.dateDep}</span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex items-center gap-2">
-                        <Clock size={16} className="text-gray-400" />
-                        <span className="text-gray-900 dark:text-white">{depart.dep_heure}</span>
-                      </div>
-                    </td>
-                    {/* <td className="py-4 px-4">
-                      <span className="inline-flex items-center justify-center px-3 py-1 rounded-lg bg-primary-100 dark:bg-primary-900 text-primary-700 dark:text-primary-300 font-semibold">
-                        {depart.dep_place}
+        </div>
+      ) : departs.length === 0 ? (
+        <div className="card text-center py-12">
+          <Bus size={48} className="mx-auto text-gray-400 mb-4" />
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
+            Aucun départ disponible
+          </h3>
+          <p className="text-gray-600 dark:text-gray-400">
+            Aucun départ n'est configuré pour le moment.
+          </p>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {departs.map((depart) => (
+            <div key={depart.id} className="card hover:shadow-soft-lg transition-all duration-200">
+              <div className="flex items-start justify-between mb-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-primary-600 flex items-center justify-center text-white">
+                    <Bus size={24} />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold text-gray-900 dark:text-white">{depart.name ?? '—'}</h3>
+                    <p className="text-sm text-gray-600 dark:text-gray-400">Car: {depart.carNumber ?? '—'}</p>
+                  </div>
+                </div>
+                {(() => {
+                  const sold = depart.seats?.filter(s => s.status !== 'AVAILABLE').length ?? 0;
+                  return (
+                    <span className={`px-3 py-1 rounded-lg text-sm font-medium ${
+                      sold > 0
+                        ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
+                        : 'bg-gray-100 text-gray-700 dark:bg-gray-900 dark:text-gray-300'
+                    }`}>
+                      {sold}/{depart.totalSeats ?? '—'}
+                    </span>
+                  );
+                })()}
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex items-start gap-2">
+                  <MapPin size={16} className="text-gray-400 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1">
+                    <span className="text-sm text-gray-600 dark:text-gray-400 block mb-1">{depart.agency?.name ?? '—'} →</span>
+                    <div className="flex flex-wrap gap-1">
+                      {depart.itinerary?.destinations?.map((d, i) => (
+                        <span key={i} className="inline-block px-2 py-0.5 bg-primary-50 dark:bg-primary-900/20 text-primary-700 dark:text-primary-300 text-xs font-medium rounded-full">
+                          {d.destination?.city ?? '—'}
+                        </span>
+                      )) ?? <span className="text-sm text-gray-400">—</span>}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Clock size={16} className="text-gray-400" />
+                  <div className="flex-1">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">{depart.date ?? '—'}</span>
+                    <span className="text-sm text-gray-600 dark:text-gray-400 mx-2">•</span>
+                    <span className="text-sm font-medium text-gray-900 dark:text-white">{depart.time ?? '—'}</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-gray-200 dark:border-gray-800">
+                  <span className="text-sm text-gray-600 dark:text-gray-400">Chauffeur</span>
+                  <span className="text-sm font-medium text-gray-900 dark:text-white">{depart.driver ?? '—'}</span>
+                </div>
+
+                {(() => {
+                  const total = depart.seats?.filter(s => s.status !== 'AVAILABLE').reduce((sum, s) => sum + (s.price ?? 0), 0) ?? 0;
+                  return total > 0 ? (
+                    <div className="flex items-center justify-between pt-2">
+                      <span className="text-sm text-gray-600 dark:text-gray-400">Total tickets</span>
+                      <span className="text-sm font-bold text-green-600 dark:text-green-400">
+                        {total.toLocaleString('fr-FR')} FCFA
                       </span>
-                    </td> */}
-                    <td className="py-4 px-4">
-                      <span className={`px-3 py-1 rounded-lg text-sm font-medium ${
-                        depart.nbtick > 0
-                          ? 'bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-300'
-                          : 'bg-gray-100 text-gray-700 dark:bg-gray-900 dark:text-gray-300'
-                      }`}>
-                        {depart.nbtick} / {depart.dep_place}
-                      </span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <span className="text-gray-900 dark:text-white">{depart.dep_chauff}</span>
-                    </td>
-                    <td className="py-4 px-4">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => handleEditClick(depart)}
-                          className="bg-blue-500 hover:bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-                          title="Modifier"
-                        >
-                          <Edit size={16} />
-                          Modifier
-                        </button>
-                        <button
-                          onClick={() => handleFraisClick(depart)}
-                          className="bg-green-500 hover:bg-green-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-                          title="Frais"
-                        >
-                          <DollarSign size={16} />
-                          Frais
-                        </button>
-                        <button
-                          onClick={() => handleVendreTicket(depart)}
-                          className="bg-primary-500 hover:bg-primary-600 text-white px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                        >
-                          Vendre Ticket
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+                    </div>
+                  ) : null;
+                })()}
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800 space-y-3">
+                {/* Boutons de modification et frais */}
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => handleEditClick(depart)}
+                    className="px-3 py-2 rounded-lg text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white transition-colors flex items-center justify-center gap-1"
+                  >
+                    <Edit size={14} />
+                    Modifier
+                  </button>
+                  <button
+                    onClick={() => handleFraisClick(depart)}
+                    className="px-3 py-2 rounded-lg text-xs font-medium bg-green-500 hover:bg-green-600 text-white transition-colors flex items-center justify-center gap-1"
+                  >
+                    <DollarSign size={14} />
+                    Frais
+                  </button>
+                </div>
+
+                {/* Section Bordereaux */}
+                <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300">Bordereaux</h4>
+                <div className="grid grid-cols-3 gap-2">
+                  <button
+                    disabled
+                    className="px-3 py-2 rounded-lg text-xs font-medium bg-blue-300 text-white cursor-not-allowed"
+                    title="Fonctionnalité à venir"
+                  >
+                    Billet
+                  </button>
+                  <button
+                    disabled
+                    className="px-3 py-2 rounded-lg text-xs font-medium bg-orange-300 text-white cursor-not-allowed"
+                    title="Fonctionnalité à venir"
+                  >
+                    Colis
+                  </button>
+                  <button
+                    disabled
+                    className="px-3 py-2 rounded-lg text-xs font-medium bg-purple-300 text-white cursor-not-allowed"
+                    title="Fonctionnalité à venir"
+                  >
+                    Bagage
+                  </button>
+                </div>
+
+                <button
+                  onClick={() => handleVendreTicket(depart)}
+                  className="w-full btn-primary"
+                >
+                  Vendre Ticket
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Modal de vente de ticket */}
       {selectedDeparture && (
         <TicketModal
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
+          onSuccess={loadDeparts}
           departure={selectedDeparture}
         />
       )}
@@ -356,7 +467,7 @@ const Departs: React.FC = () => {
                   Destination
                 </label>
                 <div className="input bg-gray-100 dark:bg-gray-700 cursor-not-allowed">
-                  {editingDeparture.agdest}
+                  {editingDeparture.destination?.city ?? '—'}
                 </div>
               </div>
 
@@ -461,7 +572,7 @@ const Departs: React.FC = () => {
                   Destination
                 </label>
                 <div className="input bg-gray-100 dark:bg-gray-700 cursor-not-allowed">
-                  {editingFraisDeparture.agdest}
+                  {editingFraisDeparture.destination?.city ?? '—'}
                 </div>
               </div>
 

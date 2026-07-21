@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Briefcase, User, FileText, MapPin } from 'lucide-react';
 import { PhoneInput } from 'react-international-phone';
 import 'react-international-phone/style.css';
-import { CreateBagageRequest, bagageApi, departureApi, gareApi, Departure, Gare } from '../services/api';
+import { CreateBagageRequest, bagageApi, departureApi, gareApi, DepartureV2, Gare } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 
@@ -28,7 +28,7 @@ const BagageFormModal: React.FC<BagageFormModalProps> = ({ isOpen, onClose, onSu
   const { user } = useAuth();
   const { success: showSuccess, error: showError } = useToast();
 
-  const [departures, setDepartures] = useState<Departure[]>([]);
+  const [departures, setDepartures] = useState<DepartureV2[]>([]);
   const [gares, setGares] = useState<Gare[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingData, setIsLoadingData] = useState(true);
@@ -59,16 +59,16 @@ const BagageFormModal: React.FC<BagageFormModalProps> = ({ isOpen, onClose, onSu
     try {
       setIsLoadingData(true);
 
-      // Charger les départs et les gares en parallèle
-      const [departuresResponse, garesResponse] = await Promise.all([
-        departureApi.loadAllDepartures(parseInt(user.id)),
+      const agencyId = localStorage.getItem('agenceId');
+      if (!agencyId) throw new Error('Agence non identifiée');
+
+      const [deps, garesResponse] = await Promise.all([
+        departureApi.getByAgency(parseInt(agencyId)),
         gareApi.loadGareDest(parseInt(user.id))
       ]);
 
-      setDepartures(departuresResponse.data);
+      setDepartures(deps);
       setGares(garesResponse.data);
-
-      // Définir l'utilisateur dans formData
       setFormData(prev => ({ ...prev, user: parseInt(user.id) }));
     } catch (error: any) {
       console.error('Erreur lors du chargement des données:', error);
@@ -210,8 +210,8 @@ const BagageFormModal: React.FC<BagageFormModalProps> = ({ isOpen, onClose, onSu
                     >
                       <option value={0}>Sélectionner un départ</option>
                       {departures.map((dep) => (
-                        <option key={dep.dep_id} value={dep.dep_id}>
-                          {dep.agdest} - {dep.dep_heure} - {dep.dep_numcar}
+                        <option key={dep.id} value={dep.id}>
+                          {dep.name} - {dep.time} - {dep.carNumber}
                         </option>
                       ))}
                     </select>

@@ -1,6 +1,8 @@
 import { fetch as tauriFetch } from '@tauri-apps/plugin-http';
 import { API_CONFIG } from '../config/api.config';
 
+const GUICHET_BASE_URL = 'https://guichet-dev.createsarl.com/api';
+
 export interface Company {
   id: number;
   code: string;
@@ -59,12 +61,37 @@ export interface User {
 }
 
 export interface LoginResponse {
-  status: number;
-  nom: string;
-  agnom: string;
-  usid: number;
-  agid: number;
-  msg: string;
+  accessToken: string;
+  refreshToken: string;
+  accessExpiresIn: number;
+  refreshExpiresIn: number;
+  user: User;
+  roles: string[];
+}
+
+export const TOKEN_EXPIRY_MS = 60 * 60 * 1000; // 60 minutes
+
+export function getAuthHeaders(): Record<string, string> {
+  const token = localStorage.getItem('accessToken');
+  if (!token) return { 'Content-Type': 'application/json' };
+  return {
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${token}`,
+  };
+}
+
+function logRequest(url: string, payload: unknown) {
+  console.log('📤 API Request:', { url, payload });
+}
+
+// Wrapper autour de tauriFetch : dispatch un event global si 401 reçu
+// (ignoré pour les routes /auth/ qui gèrent leurs erreurs elles-mêmes)
+async function apiFetch(url: string, options: object): Promise<any> {
+  const response = await tauriFetch(url, options as any);
+  if (response.status === 401 && !url.includes('/auth/')) {
+    window.dispatchEvent(new CustomEvent('auth:unauthorized'));
+  }
+  return response;
 }
 
 export interface ApiError {
@@ -118,6 +145,61 @@ export interface Departure {
   sumtick: number | null;
   agdest: string;
   nbtick: number;
+}
+
+export interface DepartureSeat {
+  seatNumber: string;
+  status: 'AVAILABLE' | 'RESERVED' | 'OCCUPIED';
+  ticketId?: number;
+  passengerName?: string;
+  passengerPhone?: string;
+  price?: number;
+  destinationId?: number;
+}
+
+export interface DepartureItineraryDestination {
+  id: string;
+  stepOrder: number;
+  isFinal: boolean;
+  distanceFromPrevious: number;
+  durationMinutes: number;
+  destination: {
+    id: number;
+    city: string;
+    price?: string;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
+export interface DepartureItinerary {
+  id: string;
+  name: string;
+  code?: string;
+  description?: string;
+  active?: boolean;
+  destinations: DepartureItineraryDestination[];
+  [key: string]: any;
+}
+
+export interface DepartureV2 {
+  id: number;
+  name: string;
+  carNumber: string;
+  totalSeats: number;
+  driver: string;
+  convoyeur?: string;
+  date: string;
+  time: string;
+  roadFees?: number;
+  washingFees?: number;
+  fuelFees?: number;
+  stationFees?: number;
+  otherFees?: number;
+  agency?: { id?: number; name?: string; city?: string; currency?: string; [key: string]: any };
+  itinerary?: DepartureItinerary;
+  seats?: DepartureSeat[];
+  [key: string]: any;
 }
 
 export interface LoadAllDepResponse {
@@ -296,6 +378,15 @@ export interface Destination {
   dest_create: string;
 }
 
+export interface DestinationV2 {
+  id: number;
+  agencyId: number;
+  city: string;
+  price: number;
+  createdDate?: string;
+  [key: string]: any;
+}
+
 export interface LoadDestResponse {
   status: number;
   data: Destination[];
@@ -303,32 +394,44 @@ export interface LoadDestResponse {
 }
 
 export interface AddDestinationRequest {
-  agid: number;
-  destination: string;
-  prix: number;
+  userId: number;
+  agency: { value: string };
+  city: string;
+  price: string;
+}
+
+export interface UpdateDestinationRequest {
+  userId: number;
+  agency: { value: string };
+  city: string;
+  price: number;
 }
 
 export interface AddDestinationResponse {
-  status: number;
-  msg: string;
+  id?: number;
+  city?: string;
+  [key: string]: any;
 }
 
 export interface CreateDepartureRequest {
-  user: number;
-  dep: string;
-  dest: number;
-  place: number;
-  car: string;
-  chauff: string;
-  conv: string;
-  datedep: string;
-  hdep: string;
+  carNumber: string;
+  departUser: number;
+  name: string;
+  totalsSeats: number;
+  driverName: string;
+  convoyeurName: string;
+  date: string;
+  time: string;
+  roadFees: number;
+  washingFees: number;
+  fuelFees: number;
+  stationFees: number;
+  otherFees: number;
+  agencyId: number;
+  itineraryId: string;
 }
 
-export interface CreateDepartureResponse {
-  status: number;
-  msg: string;
-}
+export type CreateDepartureResponse = DepartureV2;
 
 export interface UpdateDepartureRequest {
   depid: number;
@@ -427,23 +530,24 @@ export interface SellBilletResponse {
 }
 
 export const authApi = {
-  async login(phone: string, pass: string): Promise<LoginResponse> {
+  async login(login: string, password: string): Promise<LoginResponse> {
     try {
-      console.log('🔐 Tentative de connexion:', { phone, url: `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.login}` });
+      const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.login}`;
+      const payload = { login, password };
+      logRequest(url, payload);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.login}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ phone, pass }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
 
       console.log('📡 Réponse HTTP:', { status: response.status, ok: response.ok, statusText: response.statusText });
 
       if (!response.ok) {
+        const errBody = await response.json().catch(() => ({}));
         throw {
-          message: `Erreur de connexion: ${response.statusText}`,
+          message: errBody?.detail || `Erreur de connexion: ${response.statusText}`,
           status: response.status,
         } as ApiError;
       }
@@ -451,12 +555,10 @@ export const authApi = {
       const data = await response.json();
       console.log('📦 Données reçues:', data);
 
-      // Vérifier si la réponse contient un statut d'erreur
-      if (data.status !== 200) {
-        console.error('❌ Statut d\'erreur dans la réponse:', data.status, data.msg);
+      if (!data.accessToken) {
         throw {
-          message: data.msg || 'Erreur de connexion',
-          status: data.status,
+          message: data.detail || data.msg || 'Erreur de connexion',
+          status: response.status,
         } as ApiError;
       }
 
@@ -470,19 +572,48 @@ export const authApi = {
       } as ApiError;
     }
   },
+
+  async refresh(storedRefreshToken: string): Promise<LoginResponse> {
+    const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.refreshToken}?refreshToken=${encodeURIComponent(storedRefreshToken)}`;
+    console.log('🔄 Rafraîchissement du token:', url);
+    try {
+      const response = await tauriFetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+      });
+
+      const data = await response.json();
+      console.log('📦 Réponse refresh:', data);
+
+      if (!response.ok || !data.accessToken) {
+        throw {
+          message: data?.detail || 'Échec du rafraîchissement du token',
+          status: response.status,
+        } as ApiError;
+      }
+
+      return data as LoginResponse;
+    } catch (error: any) {
+      console.error('❌ Erreur refresh token:', error);
+      throw {
+        message: error.message || 'Erreur de rafraîchissement',
+        status: error.status,
+      } as ApiError;
+    }
+  },
 };
 
 export const departureApi = {
   async loadAllDepartures(userId: number): Promise<LoadAllDepResponse> {
     try {
-      console.log('🚌 Chargement des départs pour l\'utilisateur:', userId);
+      const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.loadAllDepartures}`;
+      const payload = { user: userId };
+      logRequest(url, payload);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.loadAllDepartures}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user: userId }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
       });
 
       console.log('📡 Réponse HTTP départs:', { status: response.status, ok: response.ok });
@@ -518,37 +649,28 @@ export const departureApi = {
 
   async createDeparture(request: CreateDepartureRequest): Promise<CreateDepartureResponse> {
     try {
-      console.log('➕ Création d\'un nouveau départ:', request);
+      const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.departures}`;
+      logRequest(url, request);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.addDepart}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify(request),
       });
 
       console.log('📡 Réponse HTTP création départ:', { status: response.status, ok: response.ok });
 
+      const data = await response.json();
+      console.log('📦 Réponse création départ:', data);
+
       if (!response.ok) {
         throw {
-          message: `Erreur de création du départ: ${response.statusText}`,
+          message: data?.detail || data?.msg || `Erreur de création du départ: ${response.statusText}`,
           status: response.status,
         } as ApiError;
       }
 
-      const data = await response.json();
-      console.log('📦 Réponse création départ:', data);
-
-      // Vérifier si la réponse contient un statut d'erreur
-      if (data.status !== 200) {
-        throw {
-          message: data.msg || 'Erreur de création du départ',
-          status: data.status,
-        } as ApiError;
-      }
-
-      console.log('✅ Départ créé avec succès:', data.msg);
+      console.log('✅ Départ créé avec succès:', data.id);
       return data as CreateDepartureResponse;
     } catch (error: any) {
       console.error('❌ Erreur API création départ:', error);
@@ -561,13 +683,12 @@ export const departureApi = {
 
   async updateDeparture(request: UpdateDepartureRequest): Promise<UpdateDepartureResponse> {
     try {
-      console.log('✏️ Mise à jour du départ:', request);
+      const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.updateDepart}`;
+      logRequest(url, request);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.updateDepart}`, {
+      const response = await apiFetch(url, {
         method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify(request),
       });
 
@@ -601,19 +722,51 @@ export const departureApi = {
       } as ApiError;
     }
   },
+
+  async getByAgency(agencyId: number): Promise<DepartureV2[]> {
+    const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.departures}?agencyId=${agencyId}`;
+    logRequest(url, { agencyId });
+
+    try {
+      const response = await apiFetch(url, {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      });
+
+      console.log('📡 Réponse HTTP départs:', { status: response.status, ok: response.ok });
+
+      const data = await response.json();
+      console.log('🚌 Départs reçus:', data);
+
+      if (!response.ok) {
+        throw {
+          message: data?.detail || `Erreur de chargement des départs: ${response.statusText}`,
+          status: response.status,
+        } as ApiError;
+      }
+
+      return (Array.isArray(data) ? data : data.data ?? []) as DepartureV2[];
+    } catch (error: any) {
+      console.error('❌ Erreur API départs:', error);
+      throw {
+        message: error.message || 'Erreur de connexion au serveur',
+        status: error.status,
+      } as ApiError;
+    }
+  },
 };
 
 export const colisApi = {
   async colisByUser(userId: number, search: string = '', date: string): Promise<ColisByUserResponse> {
     try {
-      console.log('📦 Chargement des colis pour l\'utilisateur:', { userId, search, date });
+      const url = `${GUICHET_BASE_URL}${API_CONFIG.endpoints.colisByUser}`;
+      const payload = { user: userId, search, date };
+      logRequest(url, payload);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.colisByUser}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user: userId, search, date }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
       });
 
       console.log('📡 Réponse HTTP colis:', { status: response.status, ok: response.ok });
@@ -649,13 +802,13 @@ export const colisApi = {
 
   async createColis(request: CreateColisRequest): Promise<CreateColisResponse> {
     try {
-      console.log('➕ Création d\'un nouveau colis:', request);
+      const url = `${GUICHET_BASE_URL}${API_CONFIG.endpoints.createColis}`;
+      logRequest(url, request);
+      console.log('📦 [createColis] Payload complet:', JSON.stringify(request, null, 2));
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.createColis}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify(request),
       });
 
@@ -669,7 +822,7 @@ export const colisApi = {
       }
 
       const data = await response.json();
-      console.log('📦 Réponse création colis:', data);
+      console.log('📦 [createColis] Retour complet:', JSON.stringify(data, null, 2));
 
       // Vérifier si la réponse contient un statut d'erreur
       if (data.status !== 200) {
@@ -694,14 +847,14 @@ export const colisApi = {
 export const bagageApi = {
   async bagageByUser(userId: number, search: string = '', date: string): Promise<BagageByUserResponse> {
     try {
-      console.log('🎒 Chargement des bagages pour l\'utilisateur:', { userId, search, date });
+      const url = `${GUICHET_BASE_URL}${API_CONFIG.endpoints.bagageByUser}`;
+      const payload = { user: userId, search, date };
+      logRequest(url, payload);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.bagageByUser}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user: userId, search, date }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
       });
 
       console.log('📡 Réponse HTTP bagages:', { status: response.status, ok: response.ok });
@@ -737,13 +890,12 @@ export const bagageApi = {
 
   async createBagage(request: CreateBagageRequest): Promise<CreateBagageResponse> {
     try {
-      console.log('➕ Création d\'un nouveau bagage:', request);
+      const url = `${GUICHET_BASE_URL}${API_CONFIG.endpoints.createBagage}`;
+      logRequest(url, request);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.createBagage}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify(request),
       });
 
@@ -782,14 +934,14 @@ export const bagageApi = {
 export const ticketApi = {
   async ticketByUser(userId: number, search: string = '', date: string): Promise<TicketByUserResponse> {
     try {
-      console.log('🎫 Chargement des billets pour l\'utilisateur:', { userId, search, date });
+      const url = `${GUICHET_BASE_URL}${API_CONFIG.endpoints.ticketByUser}`;
+      const payload = { user: userId, search, date };
+      logRequest(url, payload);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.ticketByUser}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user: userId, search, date }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
       });
 
       console.log('📡 Réponse HTTP billets:', { status: response.status, ok: response.ok });
@@ -825,13 +977,12 @@ export const ticketApi = {
 
   async sellBillet(request: SellBilletRequest): Promise<SellBilletResponse> {
     try {
-      console.log('💳 Vente de billet:', request);
+      const url = `${GUICHET_BASE_URL}${API_CONFIG.endpoints.sellBillet}`;
+      logRequest(url, request);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.sellBillet}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify(request),
       });
 
@@ -880,14 +1031,14 @@ export const ticketApi = {
 export const gareApi = {
   async loadGareDest(userId: number): Promise<LoadGareDestResponse> {
     try {
-      console.log('🏢 Chargement des gares de destination pour l\'utilisateur:', userId);
+      const url = `${GUICHET_BASE_URL}${API_CONFIG.endpoints.loadGareDest}`;
+      const payload = { user: userId };
+      logRequest(url, payload);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.loadGareDest}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ user: userId }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
       });
 
       console.log('📡 Réponse HTTP gares:', { status: response.status, ok: response.ok });
@@ -925,14 +1076,14 @@ export const gareApi = {
 export const destinationApi = {
   async loadDest(agenceId: number): Promise<LoadDestResponse> {
     try {
-      console.log('📍 Chargement des destinations pour l\'agence:', agenceId);
+      const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.loadDest}`;
+      const payload = { agid: agenceId };
+      logRequest(url, payload);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.loadDest}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ agid: agenceId }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
       });
 
       console.log('📡 Réponse HTTP destinations:', { status: response.status, ok: response.ok });
@@ -968,40 +1119,197 @@ export const destinationApi = {
 
   async addDestination(request: AddDestinationRequest): Promise<AddDestinationResponse> {
     try {
-      console.log('➕ Ajout d\'une nouvelle destination:', request);
+      const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.destinations}`;
+      logRequest(url, request);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.addDestination}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify(request),
       });
 
       console.log('📡 Réponse HTTP ajout destination:', { status: response.status, ok: response.ok });
 
+      const data = await response.json().catch(() => ({}));
+      console.log('📍 Réponse ajout destination:', data);
+
       if (!response.ok) {
         throw {
-          message: `Erreur d'ajout de la destination: ${response.statusText}`,
+          message: data?.detail || data?.msg || `Erreur d'ajout de la destination: ${response.statusText}`,
           status: response.status,
         } as ApiError;
       }
 
-      const data = await response.json();
-      console.log('📍 Réponse ajout destination:', data);
-
-      // Vérifier si la réponse contient un statut d'erreur
-      if (data.status !== 200) {
-        throw {
-          message: data.msg || 'Erreur d\'ajout de la destination',
-          status: data.status,
-        } as ApiError;
-      }
-
-      console.log('✅ Destination ajoutée avec succès:', data.msg);
+      console.log('✅ Destination ajoutée avec succès');
       return data as AddDestinationResponse;
     } catch (error: any) {
       console.error('❌ Erreur API ajout destination:', error);
+      throw {
+        message: error.message || 'Erreur de connexion au serveur',
+        status: error.status,
+      } as ApiError;
+    }
+  },
+
+  async updateDestination(id: number, request: UpdateDestinationRequest): Promise<any> {
+    const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.destinations}/${id}`;
+    logRequest(url, request);
+
+    try {
+      const response = await apiFetch(url, {
+        method: 'PUT',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(request),
+      });
+
+      console.log('📡 Réponse HTTP mise à jour destination:', { status: response.status, ok: response.ok });
+
+      const data = await response.json().catch(() => ({}));
+      console.log('📍 Réponse mise à jour destination:', data);
+
+      if (!response.ok) {
+        throw {
+          message: data?.detail || data?.msg || `Erreur de mise à jour de la destination: ${response.statusText}`,
+          status: response.status,
+        } as ApiError;
+      }
+
+      console.log('✅ Destination mise à jour avec succès');
+      return data;
+    } catch (error: any) {
+      console.error('❌ Erreur API mise à jour destination:', error);
+      throw {
+        message: error.message || 'Erreur de connexion au serveur',
+        status: error.status,
+      } as ApiError;
+    }
+  },
+
+  async getByAgency(agencyId: number): Promise<DestinationV2[]> {
+    const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.destinations}?agencyId=${agencyId}`;
+    logRequest(url, { agencyId });
+
+    try {
+      const response = await apiFetch(url, {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      });
+
+      console.log('📡 Réponse HTTP destinations:', { status: response.status, ok: response.ok });
+
+      const data = await response.json();
+      console.log('📍 Destinations reçues:', data);
+
+      if (!response.ok) {
+        throw {
+          message: data?.detail || `Erreur de chargement des destinations: ${response.statusText}`,
+          status: response.status,
+        } as ApiError;
+      }
+
+      return (Array.isArray(data) ? data : data.data ?? []) as DestinationV2[];
+    } catch (error: any) {
+      console.error('❌ Erreur API destinations:', error);
+      throw {
+        message: error.message || 'Erreur de connexion au serveur',
+        status: error.status,
+      } as ApiError;
+    }
+  },
+};
+
+export interface ItineraryDestination {
+  id?: number;
+  city?: string;
+  destination?: {
+    city: string;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
+export interface Itinerary {
+  id: number;
+  name: string;
+  agencyId: number;
+  agencyName: string;
+  destinations: ItineraryDestination[];
+  [key: string]: any;
+}
+
+export interface ItineraryStepRequest {
+  destinationId: number;
+  stepOrder: number;
+  isFinal: boolean;
+  distanceFromPrevious: number;
+  durationMinutes: number;
+}
+
+export interface CreateItineraryRequest {
+  name: string;
+  code: string;
+  description: string;
+  agencyId: number;
+  destinations: ItineraryStepRequest[];
+}
+
+export const itineraryApi = {
+  async getByAgency(agencyId: number): Promise<Itinerary[]> {
+    const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.itineraries}/${agencyId}`;
+    logRequest(url, { agencyId });
+
+    try {
+      const response = await apiFetch(url, {
+        method: 'GET',
+        headers: getAuthHeaders(),
+      });
+
+      console.log('📡 Réponse HTTP itinéraires:', { status: response.status, ok: response.ok });
+
+      const data = await response.json();
+      console.log('🗺️ Itinéraires reçus:', data);
+
+      if (!response.ok) {
+        throw {
+          message: data?.detail || `Erreur de chargement des itinéraires: ${response.statusText}`,
+          status: response.status,
+        } as ApiError;
+      }
+
+      return (Array.isArray(data) ? data : data.data ?? []) as Itinerary[];
+    } catch (error: any) {
+      console.error('❌ Erreur API itinéraires:', error);
+      throw {
+        message: error.message || 'Erreur de connexion au serveur',
+        status: error.status,
+      } as ApiError;
+    }
+  },
+
+  async create(request: CreateItineraryRequest): Promise<void> {
+    const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.itineraries}`;
+    logRequest(url, request);
+
+    try {
+      const response = await apiFetch(url, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(request),
+      });
+
+      console.log('📡 Réponse HTTP création itinéraire:', { status: response.status, ok: response.ok });
+
+      const data = await response.json().catch(() => ({}));
+      console.log('🗺️ Réponse création itinéraire:', data);
+
+      if (!response.ok) {
+        throw {
+          message: data?.detail || data?.msg || `Erreur de création: ${response.statusText}`,
+          status: response.status,
+        } as ApiError;
+      }
+    } catch (error: any) {
+      console.error('❌ Erreur API création itinéraire:', error);
       throw {
         message: error.message || 'Erreur de connexion au serveur',
         status: error.status,
@@ -1022,17 +1330,62 @@ export interface DisplaySiegeResponse {
   msg: string;
 }
 
+export interface SellGuichetRequest {
+  destinationId: number;
+  userId: number;
+  customerName: string;
+  customerPhone: string;
+  seatNumbers: string[];
+  paymentReference: string;
+}
+
+export const reservationApi = {
+  async sellGuichet(departureId: number, request: SellGuichetRequest): Promise<any> {
+    const url = `${API_CONFIG.baseUrl}/reservations/guichet/${departureId}`;
+    logRequest(url, request);
+
+    try {
+      const response = await apiFetch(url, {
+        method: 'POST',
+        headers: getAuthHeaders(),
+        body: JSON.stringify(request),
+      });
+
+      console.log('📡 Réponse HTTP vente billet:', { status: response.status, ok: response.ok });
+
+      const data = await response.json().catch(() => ({}));
+      console.log('🎫 Réponse vente billet:', data);
+
+      if (!response.ok) {
+        throw {
+          message: data?.detail || data?.msg || `Erreur de vente du billet: ${response.statusText}`,
+          status: response.status,
+        } as ApiError;
+      }
+
+      console.log('✅ Billet vendu avec succès');
+      return data;
+    } catch (error: any) {
+      console.error('❌ Erreur API vente billet:', error);
+      throw {
+        message: error.message || 'Erreur de connexion au serveur',
+        status: error.status,
+      } as ApiError;
+    }
+  },
+};
+
 export const siegeApi = {
   async displaySiege(departId: number): Promise<DisplaySiegeResponse> {
     try {
-      console.log('💺 Chargement des sièges pour le départ:', departId);
+      const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.displaySiege}`;
+      const payload = { depart: departId };
+      logRequest(url, payload);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.displaySiege}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ depart: departId }),
+        headers: getAuthHeaders(),
+        body: JSON.stringify(payload),
       });
 
       console.log('📡 Réponse HTTP sièges:', { status: response.status, ok: response.ok });
@@ -1106,13 +1459,12 @@ export interface DashboardRequest {
 export const dashboardApi = {
   async getDashboard(request: DashboardRequest): Promise<DashboardResponse> {
     try {
-      console.log('📊 Chargement des données du dashboard:', request);
+      const url = 'https://guichet-dev.createsarl.com/api/dashboard';
+      logRequest(url, request);
 
-      const response = await tauriFetch(`${API_CONFIG.baseUrl}${API_CONFIG.endpoints.dashboard}`, {
+      const response = await apiFetch(url, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers: getAuthHeaders(),
         body: JSON.stringify(request),
       });
 

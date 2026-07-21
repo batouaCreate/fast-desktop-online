@@ -11,6 +11,8 @@ export interface TicketData {
   items: TicketItem[];
   total: string;
   footer: string[];
+  customer_name?: string;
+  customer_phone?: string;
 }
 
 export class ThermalPrinter {

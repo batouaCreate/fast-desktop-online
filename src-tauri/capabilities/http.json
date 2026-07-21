@@ -8,7 +8,7 @@
       "identifier": "http:default",
       "allow": [
         {
-          "url": "https://guichet.createsarl.com/*"
+          "url": "https://guichet-dev.createsarl.com/*"
         },
         {
           "url": "https://fastapidev.createdsarl.com/*"

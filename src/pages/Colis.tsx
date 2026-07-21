@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Search, Calendar, Loader2, RefreshCw } from 'lucide-react';
+import { Package, Search, Calendar, Loader2, RefreshCw, X } from 'lucide-react';
 import { colisApi, Colis as ColisType } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
@@ -7,13 +7,10 @@ import ColisFormModal from '../components/ColisFormModal';
 
 const Colis: React.FC = () => {
   const [colis, setColis] = useState<ColisType[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isCleared, setIsCleared] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedDate, setSelectedDate] = useState(() => {
-    // Date par défaut: aujourd'hui au format YYYY-MM-DD
-    const today = new Date();
-    return today.toISOString().split('T')[0];
-  });
+  const [selectedDate, setSelectedDate] = useState('');
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { user } = useAuth();
   const { error: showError } = useToast();
@@ -23,6 +20,7 @@ const Colis: React.FC = () => {
 
     try {
       setIsLoading(true);
+      setIsCleared(false);
       const response = await colisApi.colisByUser(
         parseInt(user.id),
         searchTerm,
@@ -39,7 +37,12 @@ const Colis: React.FC = () => {
 
   useEffect(() => {
     loadColis();
-  }, [user, selectedDate]);
+  }, [user]);
+
+  const clearColis = () => {
+    setColis([]);
+    setIsCleared(true);
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +85,16 @@ const Colis: React.FC = () => {
           </p>
         </div>
         <div className="flex gap-2">
+          {!isCleared && (
+            <button
+              onClick={clearColis}
+              disabled={isLoading}
+              className="btn-secondary flex items-center gap-2"
+            >
+              <X size={18} />
+              Vider
+            </button>
+          )}
           <button
             onClick={loadColis}
             disabled={isLoading}

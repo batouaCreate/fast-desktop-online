@@ -162,6 +162,8 @@ pub struct TicketData {
     pub items: Vec<TicketItem>,
     pub total: String,
     pub footer: Vec<String>,
+    pub customer_name: Option<String>,
+    pub customer_phone: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -445,6 +447,31 @@ pub fn generate_stub_and_ticket(data: &TicketData, logo_base64: Option<String>) 
     // Items du ticket en format tableau
     commands.extend_from_slice(EscPos::ALIGN_LEFT);
     commands.extend_from_slice(EscPos::TEXT_NORMAL);
+
+    // Afficher les informations client si présentes (uniquement sur le ticket)
+    if let Some(ref name) = data.customer_name {
+        if !name.is_empty() {
+            let label = format!("{:<15}", "Voyageur");
+            let line = format!("{} - {}", label, name);
+            commands.extend_from_slice(line.as_bytes());
+            commands.extend_from_slice(EscPos::LINE_FEED);
+        }
+    }
+
+    if let Some(ref phone) = data.customer_phone {
+        if !phone.is_empty() {
+            let label = format!("{:<15}", "Telephone");
+            let line = format!("{} - {}", label, phone);
+            commands.extend_from_slice(line.as_bytes());
+            commands.extend_from_slice(EscPos::LINE_FEED);
+        }
+    }
+
+    // Ajouter un saut de ligne après les infos client si au moins une est présente
+    if (data.customer_name.is_some() && !data.customer_name.as_ref().unwrap().is_empty()) ||
+       (data.customer_phone.is_some() && !data.customer_phone.as_ref().unwrap().is_empty()) {
+        commands.extend_from_slice(EscPos::LINE_FEED);
+    }
 
     for item in &data.items {
         // Format: Label justifié à gauche sur 15 chars, valeur à droite

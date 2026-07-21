@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, CreditCard, Loader2, Printer, MapPin } from 'lucide-react';
-import { Departure, siegeApi, Siege, destinationApi, Destination, ticketApi } from '../services/api';
+import { DepartureV2, destinationApi, DestinationV2, reservationApi } from '../services/api';
 import { useToast } from '../contexts/ToastContext';
 import { ThermalPrinter, TicketBuilder } from '../services/printer';
 import { PhoneInput } from 'react-international-phone';
@@ -13,27 +13,27 @@ interface Seat {
   price: number;
 }
 
-interface TicketModalProps { 
+interface TicketModalProps {
   isOpen: boolean;
   onClose: () => void;
-  departure: Departure;
+  onSuccess?: () => void;
+  departure: DepartureV2;
 }
 
-const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure }) => {
+const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, onSuccess, departure }) => {
   const [seats, setSeats] = useState<Seat[]>([]);
   const [selectedSeats, setSelectedSeats] = useState<string[]>([]);
   const [isLoadingSeats, setIsLoadingSeats] = useState(true);
   const [printers, setPrinters] = useState<string[]>([]);
   const [selectedPrinter, setSelectedPrinter] = useState<string>('');
   const [isLoadingPrinters, setIsLoadingPrinters] = useState(false);
-  const [destinations, setDestinations] = useState<Destination[]>([]);
+  const [destinations, setDestinations] = useState<DestinationV2[]>([]);
   const [selectedDestination, setSelectedDestination] = useState<number | null>(null);
   const [isLoadingDestinations, setIsLoadingDestinations] = useState(false);
   const [customerInfo, setCustomerInfo] = useState({
     name: '',
     phone: '',
   });
-  const [paymentMethod, setPaymentMethod] = useState<string>('ESPECES');
   const [isSelling, setIsSelling] = useState(false);
   const { error: showError, success: showSuccess } = useToast();
 
@@ -51,9 +51,9 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
       try {
         setIsLoadingDestinations(true);
         console.log('📍 Chargement des destinations pour agence:', agenceId);
-        const response = await destinationApi.loadDest(parseInt(agenceId));
-        console.log('✅ Destinations trouvées:', response.data);
-        setDestinations(response.data);
+        const data = await destinationApi.getByAgency(parseInt(agenceId));
+        console.log('✅ Destinations trouvées:', data);
+        setDestinations(data);
       } catch (error) {
         console.error('Erreur lors du chargement des destinations:', error);
         showError('Erreur', 'Impossible de charger les destinations');
@@ -94,93 +94,53 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
     }
   }, [isOpen, showError]);
 
-  // Charger les sièges depuis l'API
+  // Construire les sièges depuis departure.seats
   useEffect(() => {
-    const loadSeats = async () => {
-      try {
-        setIsLoadingSeats(true);
-        const response = await siegeApi.displaySiege(departure.dep_id);
+    if (!isOpen) return;
 
-        console.log('📊 Réponse API displaySiege:', response);
-        console.log('📊 Nombre de sièges reçus:', response.data.length);
-        console.log('📊 Premiers sièges:', response.data.slice(0, 5));
+    const rawSeats = departure.seats ?? [];
+    const transformedSeats: Seat[] = rawSeats.map(s => ({
+      id: `S${s.seatNumber}`,
+      number: `S${s.seatNumber}`,
+      status: s.status === 'AVAILABLE' ? 'available' : 'occupied',
+      price: s.price ?? 0,
+    }));
 
-        // Transformer les données de l'API en format Seat avec numérotation S{numéro}
-        const transformedSeats: Seat[] = response.data.map((siege: Siege) => {
-          const seatNumber = `S${siege.siege}`;
-          const status = siege.stat === 1 ? 'occupied' : 'available';
+    console.log('💺 Sièges chargés depuis departure.seats:', transformedSeats.length);
+    console.log('✅ Occupés:', transformedSeats.filter(s => s.status === 'occupied').length);
+    console.log('✅ Disponibles:', transformedSeats.filter(s => s.status === 'available').length);
 
-          console.log(`💺 Siège: ${seatNumber}, stat: ${siege.stat} -> status: ${status}`);
-
-          return {
-            id: seatNumber,
-            number: seatNumber,
-            status: status,
-            price: parseFloat(siege.price),
-          };
-        });
-
-        console.log('✅ Total sièges transformés:', transformedSeats.length);
-        console.log('✅ Sièges occupés:', transformedSeats.filter(s => s.status === 'occupied').length);
-        console.log('✅ Sièges disponibles:', transformedSeats.filter(s => s.status === 'available').length);
-        setSeats(transformedSeats);
-      } catch (error) {
-        console.error('Erreur lors du chargement des sièges:', error);
-        showError('Erreur', 'Impossible de charger les sièges');
-      } finally {
-        setIsLoadingSeats(false);
-      }
-    };
-
-    if (isOpen) {
-      loadSeats();
-    }
-  }, [isOpen, departure.dep_id, showError]);
+    setSeats(transformedSeats);
+    setIsLoadingSeats(false);
+  }, [isOpen, departure.seats]);
 
   const handleSeatClick = (seatId: string) => {
     const seat = seats.find(s => s.id === seatId);
     if (seat?.status === 'occupied') return;
 
-    setSeats(prevSeats => {
-      // Désélectionner tous les sièges précédemment sélectionnés
-      const seatsWithDeselection = prevSeats.map(s =>
-        s.status === 'selected' ? { ...s, status: 'available' as const } : s
-      );
+    const isSelected = selectedSeats.includes(seatId);
 
-      const existingSeat = seatsWithDeselection.find(s => s.id === seatId);
+    setSeats(prevSeats =>
+      prevSeats.map(s =>
+        s.id === seatId
+          ? { ...s, status: isSelected ? 'available' as const : 'selected' as const }
+          : s
+      )
+    );
 
-      if (existingSeat) {
-        // Le siège existe, on le sélectionne (il était disponible car on a tout désélectionné)
-        return seatsWithDeselection.map(s =>
-          s.id === seatId ? { ...s, status: 'selected' as const } : s
-        );
-      } else {
-        // Le siège n'existe pas, on le crée avec le statut 'selected'
-        return [
-          ...seatsWithDeselection,
-          {
-            id: seatId,
-            number: seatId,
-            status: 'selected' as const,
-            price: prevSeats[0]?.price || 0,
-          }
-        ];
-      }
-    });
-
-    // Remplacer la sélection par le nouveau siège
-    setSelectedSeats([seatId]);
+    setSelectedSeats(prev =>
+      isSelected ? prev.filter(id => id !== seatId) : [...prev, seatId]
+    );
   };
 
   // Calculer le prix basé sur la destination sélectionnée
   const getDestinationPrice = (): number => {
     if (!selectedDestination) return 0;
-    const destination = destinations.find(d => d.dest_id === selectedDestination);
-    return destination ? parseFloat(destination.dest_price) : 0;
+    const destination = destinations.find(d => d.id === selectedDestination);
+    return destination ? Number(destination.price) : 0;
   };
 
-  // Le prix total est simplement le prix de la destination (un seul siège)
-  const totalPrice = selectedSeats.length > 0 ? getDestinationPrice() : 0;
+  const totalPrice = getDestinationPrice() * selectedSeats.length;
 
   // Gérer le changement de destination
   const handleDestinationChange = (destId: string) => {
@@ -188,7 +148,6 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
     setSelectedDestination(id || null);
   };
 
-  // Fonction pour vendre un ticket payant
   const handleSellTicket = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -202,113 +161,38 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
       return;
     }
 
+    const userId = localStorage.getItem('userId');
+    if (!userId) {
+      showError('Erreur', 'Session expirée, veuillez vous reconnecter');
+      return;
+    }
+
     try {
       setIsSelling(true);
-      const userId = localStorage.getItem('userId');
 
-      if (!userId) {
-        showError('Erreur', 'Session expirée, veuillez vous reconnecter');
-        return;
-      }
+      const seatNumbers = selectedSeats.map(s => s.replace('S', ''));
+      const paymentReference = crypto.randomUUID();
 
-      // Extraire le numéro du siège (enlever le "S")
-      const seatNumber = parseInt(selectedSeats[0].replace('S', ''));
-
-      const response = await ticketApi.sellBillet({
-        user: parseInt(userId),
-        depart: departure.dep_id,
-        dest: selectedDestination,
-        siege: seatNumber,
-        phone: customerInfo.phone,
-        voyageur: customerInfo.name,
-        price: totalPrice,
-        method: paymentMethod,
-        reduction: 0,
-        nature: 'PAYANT',
+      const responseData = await reservationApi.sellGuichet(departure.id, {
+        destinationId: selectedDestination,
+        userId: parseInt(userId),
+        customerName: customerInfo.name,
+        customerPhone: customerInfo.phone,
+        seatNumbers,
+        paymentReference,
       });
 
-      console.log('🎫 Réponse complète sellBillet:', response);
-      console.log('🎫 response.data:', response.data);
-      console.log('🎫 response.data est un tableau?', Array.isArray(response.data));
+      showSuccess('Succès', 'Ticket vendu avec succès');
 
-      // L'API retourne data comme un tableau [{}], donc on prend le premier élément
-      const ticketData = Array.isArray(response.data) ? response.data[0] : response.data;
-      console.log('🎫 ticketData (premier élément):', ticketData);
-      console.log('🖼️ Logo (etp_img):', ticketData?.etp_img || 'Absent');
-
-      showSuccess('Succès', response.msg || 'Ticket vendu avec succès');
-
-      // Imprimer le ticket si l'API retourne des données
-      if (ticketData && selectedPrinter) {
-        await printTicket(ticketData, ticketData.etp_img);
+      if (selectedPrinter) {
+        await printTicket(responseData);
       }
 
+      onSuccess?.();
       onClose();
     } catch (error: any) {
       console.error('Erreur lors de la vente du ticket:', error);
       showError('Erreur', error.message || 'Impossible de vendre le ticket');
-    } finally {
-      setIsSelling(false);
-    }
-  };
-
-  // Fonction pour créer un ticket gratuit
-  const handleFreeTicket = async () => {
-    if (!selectedDestination || selectedSeats.length === 0) {
-      showError('Erreur', 'Veuillez sélectionner une destination et un siège');
-      return;
-    }
-
-    if (!selectedPrinter) {
-      showError('Erreur', 'Veuillez sélectionner une imprimante');
-      return;
-    }
-
-    try {
-      setIsSelling(true);
-      const userId = localStorage.getItem('userId');
-
-      if (!userId) {
-        showError('Erreur', 'Session expirée, veuillez vous reconnecter');
-        return;
-      }
-
-      // Extraire le numéro du siège (enlever le "S")
-      const seatNumber = parseInt(selectedSeats[0].replace('S', ''));
-
-      const response = await ticketApi.sellBillet({
-        user: parseInt(userId),
-        depart: departure.dep_id,
-        dest: selectedDestination,
-        siege: seatNumber,
-        phone: customerInfo.phone,
-        voyageur: customerInfo.name,
-        price: totalPrice,
-        method: paymentMethod,
-        reduction: totalPrice, // Réduction égale au prix pour les tickets gratuits
-        nature: 'GRATUIT',
-      });
-
-      console.log('🎫 Réponse complète sellBillet (gratuit):', response);
-      console.log('🎫 response.data:', response.data);
-      console.log('🎫 response.data est un tableau?', Array.isArray(response.data));
-
-      // L'API retourne data comme un tableau [{}], donc on prend le premier élément
-      const ticketData = Array.isArray(response.data) ? response.data[0] : response.data;
-      console.log('🎫 ticketData (premier élément):', ticketData);
-      console.log('🖼️ Logo (etp_img):', ticketData?.etp_img || 'Absent');
-
-      showSuccess('Succès', response.msg || 'Ticket gratuit créé avec succès');
-
-      // Imprimer le ticket si l'API retourne des données
-      if (ticketData && selectedPrinter) {
-        await printTicket(ticketData, ticketData.etp_img);
-      }
-
-      onClose();
-    } catch (error: any) {
-      console.error('Erreur lors de la création du ticket gratuit:', error);
-      showError('Erreur', error.message || 'Impossible de créer le ticket gratuit');
     } finally {
       setIsSelling(false);
     }
@@ -319,116 +203,51 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
     return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
   };
 
-  // Fonction pour imprimer le ticket
-  const printTicket = async (ticketData: any, logoUrl?: string) => {
+  const printTicket = async (responseData: any) => {
     try {
       console.log('🖨️ === DÉBUT IMPRESSION ===');
-      console.log('📦 ticketData reçu:', ticketData);
-      console.log('🖼️ Logo URL reçu:', logoUrl || 'Absent/undefined');
 
-      console.log('📋 Construction du ticket avec ticketData:', ticketData);
+      const destObj = destinations.find(d => d.id === selectedDestination);
+      const seatNum = selectedSeats[0]?.replace('S', '') ?? 'N/A';
+      const priceStr = `${formatNumber(getDestinationPrice())} FCFA`;
+      const logoUrl: string | undefined = responseData?.etp_img ?? undefined;
 
-      // Extraire les données du ticket
-      const ticketNumber = ticketData.tick_id?.toString() || 'N/A';
-      const departure = ticketData.dep_nom || 'N/A';
-      const date = ticketData.dep_date || 'N/A';
-      const time = ticketData.dep_heure || 'N/A';
-      const departureStation = ticketData.ag_nom || 'N/A';
-      const destination = ticketData.dest_ville || 'N/A';
-      const seatNumber = ticketData.tick_siege || selectedSeats[0];
-
-      // Si c'est un ticket gratuit, afficher "Billet gratuit" au lieu du prix
-      const isGratuit = ticketData.tick_nature === 'GRATUIT';
-      const price = isGratuit
-        ? 'Billet gratuit'
-        : (ticketData.dest_price ? `${formatNumber(parseInt(ticketData.dest_price))} FCFA` : 'N/A');
-
-      console.log('📋 Données extraites:', {
-        ticketNumber,
-        departure,
-        date,
-        time,
-        departureStation,
-        destination,
-        seatNumber,
-        price,
-        isGratuit
-      });
-
-      // Créer les données du ticket
       const ticket = TicketBuilder.createTransportTicket({
-        ticketNumber,
-        departure,
-        date,
-        time,
-        departureStation,
-        destination,
-        seatNumber,
-        carNumber: ticketData.dep_numcar || undefined,
-        price,
+        ticketNumber: responseData?.id?.toString() ?? responseData?.tick_id?.toString() ?? 'N/A',
+        departure: departure.name ?? 'N/A',
+        date: departure.date ?? 'N/A',
+        time: departure.time ?? 'N/A',
+        departureStation: departure.agency?.name ?? 'N/A',
+        destination: destObj?.city ?? 'N/A',
+        seatNumber: seatNum,
+        carNumber: departure.carNumber ?? undefined,
+        price: priceStr,
         passenger: customerInfo.name || undefined,
-        isGratuit, // Passer l'information pour adapter le total
+        isGratuit: false,
       });
 
-      // Préparer le logo
-      let cleanLogo: string | undefined = undefined;
+      ticket.customer_name = customerInfo.name || undefined;
+      ticket.customer_phone = customerInfo.phone || undefined;
 
+      let cleanLogo: string | undefined = undefined;
       if (logoUrl) {
         try {
-          console.log('🔗 URL/DATA du logo:', logoUrl);
-
-          // Vérifier si c'est une URL (commence par http:// ou https://)
           if (logoUrl.startsWith('http://') || logoUrl.startsWith('https://')) {
-            console.log('🌐 Logo est une URL HTTP/HTTPS');
-            console.log('🌐 URL complète:', logoUrl);
-            console.log('🔄 Téléchargement en cours...');
-
             cleanLogo = await ThermalPrinter.urlToBase64(logoUrl);
-
-            console.log('✅ Logo téléchargé et converti en base64');
-            console.log('✅ Taille du base64:', cleanLogo.length, 'caractères');
-            console.log('✅ Premiers 100 chars:', cleanLogo.substring(0, 100));
-          }
-          // Vérifier si c'est déjà du base64 avec préfixe data:image
-          else if (logoUrl.includes(',')) {
-            console.log('🔍 Logo contient un préfixe data:image, extraction...');
+          } else if (logoUrl.includes(',')) {
             cleanLogo = logoUrl.split(',')[1];
-            console.log('✂️ Logo nettoyé (enlevé préfixe data:image)');
-            console.log('✅ Taille du base64:', cleanLogo.length, 'caractères');
-          }
-          // Sinon, considérer que c'est déjà du base64 pur
-          else {
-            console.log('📝 Logo semble être du base64 pur (pas d\'URL HTTP)');
-            console.log('📝 Contenu reçu:', logoUrl.substring(0, 200));
+          } else {
             cleanLogo = logoUrl;
           }
-
-          console.log('🖼️ Logo final (premiers 100 chars):', cleanLogo.substring(0, 100));
-        } catch (error) {
-          console.error('❌ Erreur lors du traitement du logo:', error);
+        } catch {
           showError('Attention', 'Impossible de télécharger le logo, impression sans logo');
         }
-      } else {
-        console.log('⚠️ AUCUN LOGO FOURNI (logoUrl est null/undefined)');
       }
 
-      console.log('🖨️ Impression souche et ticket...', {
-        hasLogo: !!cleanLogo,
-        logoLength: cleanLogo?.length || 0,
-        ticketNumber,
-        printerName: selectedPrinter
-      });
-
-      // Imprimer souche et ticket en une seule fois (pas de latence!)
-      await ThermalPrinter.printStubAndTicket(
-        selectedPrinter,
-        ticket,
-        cleanLogo
-      );
-
+      await ThermalPrinter.printStubAndTicket(selectedPrinter, ticket, cleanLogo);
       console.log('✅ Impression terminée avec succès');
     } catch (error) {
-      console.error('❌ Erreur lors de l\'impression:', error);
+      console.error('❌ Erreur impression:', error);
       showError('Attention', 'Le ticket a été créé mais l\'impression a échoué');
     }
   };
@@ -443,7 +262,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
           <div>
             <h2 className="text-2xl font-bold mb-1">Vente de Ticket</h2>
             <p className="text-primary-100">
-              {departure.agdest} - Départ: {departure.dep_heure} - {departure.dep_numcar}
+              {departure.itinerary?.name ?? departure.name} - Départ: {departure.time} - {departure.carNumber}
             </p>
           </div>
           <button
@@ -488,7 +307,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
                   <>
                     {/* Sièges - 3 colonnes à gauche, 2 colonnes à droite */}
                     <div className="space-y-3">
-                      {Array.from({ length: Math.ceil(departure.dep_place / 5) }, (_, i) => i + 1).map(row => {
+                      {Array.from({ length: Math.ceil(departure.totalSeats / 5) }, (_, i) => i + 1).map(row => {
                         // Calculer les numéros de sièges pour cette rangée
                         const leftSeats = [1, 2, 3].map(col => (row - 1) * 5 + col);
                         const rightSeats = [4, 5].map(col => (row - 1) * 5 + col);
@@ -497,7 +316,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
                           <div key={row} className="flex gap-3 justify-center">
                             {/* Côté gauche (3 colonnes) */}
                             {leftSeats.map(seatNum => {
-                              if (seatNum > departure.dep_place) return null; // Ne pas afficher au-delà de dep_place
+                              if (seatNum > departure.totalSeats) return null; // Ne pas afficher au-delà de dep_place
                               const seatNumber = `S${seatNum}`;
                               const seat = seats.find(s => s.number === seatNumber);
                               const seatStatus = seat?.status || 'available';
@@ -525,7 +344,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
 
                             {/* Côté droit (2 colonnes) */}
                             {rightSeats.map(seatNum => {
-                              if (seatNum > departure.dep_place) return null; // Ne pas afficher au-delà de dep_place
+                              if (seatNum > departure.totalSeats) return null; // Ne pas afficher au-delà de dep_place
                               const seatNumber = `S${seatNum}`;
                               const seat = seats.find(s => s.number === seatNumber);
                               const seatStatus = seat?.status || 'available';
@@ -623,8 +442,8 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
                         <>
                           <option value="">Sélectionner une destination</option>
                           {destinations.map((dest) => (
-                            <option key={dest.dest_id} value={dest.dest_id}>
-                              {dest.dest_ville} - {parseFloat(dest.dest_price).toLocaleString()} FCFA
+                            <option key={dest.id} value={dest.id}>
+                              {dest.city} - {Number(dest.price).toLocaleString()} FCFA
                             </option>
                           ))}
                         </>
@@ -670,58 +489,31 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, departure })
                 {/* Résumé */}
                 <div className="bg-primary-50 dark:bg-primary-900/20 rounded-xl p-4 space-y-2">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-700 dark:text-gray-300">Siège sélectionné:</span>
-                    <span className="font-medium text-gray-900 dark:text-white">
-                      {selectedSeats.length > 0 ? selectedSeats[0] : 'Aucun'}
+                    <span className="text-gray-700 dark:text-gray-300">
+                      Sièges sélectionnés ({selectedSeats.length}):
+                    </span>
+                    <span className="font-medium text-gray-900 dark:text-white text-right max-w-[60%] break-words">
+                      {selectedSeats.length > 0 ? selectedSeats.join(', ') : 'Aucun'}
                     </span>
                   </div>
+                  {selectedSeats.length > 1 && selectedDestination && (
+                    <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
+                      <span>{selectedSeats.length} × {getDestinationPrice().toLocaleString()} FCFA</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-lg font-bold pt-2 border-t border-primary-200 dark:border-primary-700">
-                    <span className="text-gray-900 dark:text-white">Prix:</span>
+                    <span className="text-gray-900 dark:text-white">Total:</span>
                     <span className="text-primary-600 dark:text-primary-400">
                       {totalPrice.toLocaleString()} FCFA
                     </span>
                   </div>
                 </div>
 
-                {/* Méthode de paiement */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    Méthode de paiement
-                  </label>
-                  <select
-                    value={paymentMethod}
-                    onChange={(e) => setPaymentMethod(e.target.value)}
-                    className="w-full px-4 py-3 bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-xl focus:outline-none focus:ring-2 focus:ring-primary-500 text-gray-900 dark:text-white"
-                    required
-                  >
-                    <option value="ESPECES">Espèces</option>
-                    <option value="ORANGE">Orange Money</option>
-                    <option value="MTN">MTN Money</option>
-                    <option value="MOOV">Moov Money</option>
-                    <option value="WAVE">Wave</option>
-                  </select>
-                </div>
-
-                <div className="flex gap-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={handleFreeTicket}
-                    disabled={isSelling || selectedSeats.length === 0}
-                    className="flex-1 bg-red-500 hover:bg-red-600 text-white px-4 py-2.5 rounded-xl font-medium transition-all duration-200 shadow-sm hover:shadow-md disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                  >
-                    {isSelling ? (
-                      <>
-                        <Loader2 size={20} className="animate-spin" />
-                        Traitement...
-                      </>
-                    ) : (
-                      'Ticket gratuit'
-                    )}
-                  </button>
+                <div className="pt-2">
                   <button
                     type="submit"
                     disabled={isSelling || selectedSeats.length === 0}
-                    className="flex-1 btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="w-full btn-primary disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   >
                     {isSelling ? (
                       <>

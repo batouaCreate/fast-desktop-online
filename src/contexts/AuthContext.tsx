@@ -1,5 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { authApi, ApiError } from '../services/api';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import { authApi, ApiError, TOKEN_EXPIRY_MS } from '../services/api';
 
 interface User {
   id: string;
@@ -33,50 +33,151 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const logoutTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  useEffect(() => {
-    // Vérifier si l'utilisateur est déjà connecté (localStorage)
-    const storedUser = localStorage.getItem('user');
-    const storedToken = localStorage.getItem('accessToken');
-    if (storedUser && storedToken) {
-      setUser(JSON.parse(storedUser));
-      setAccessToken(storedToken);
-      setIsAuthenticated(true);
+  const clearSession = () => {
+    if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+    setUser(null);
+    setAccessToken(null);
+    setIsAuthenticated(false);
+    localStorage.removeItem('user');
+    localStorage.removeItem('accessToken');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('tokenExpiresAt');
+    localStorage.removeItem('userId');
+    localStorage.removeItem('agenceId');
+  };
+
+  const scheduleAutoLogout = (expiresAt: number) => {
+    if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+    const delay = expiresAt - Date.now();
+    if (delay <= 0) {
+      clearSession();
+      return;
     }
+    logoutTimerRef.current = setTimeout(() => {
+      clearSession();
+    }, delay);
+  };
+
+  // Activity tracking + auto-refresh + inactivity logout
+  useEffect(() => {
+    const INACTIVITY_MS = 10 * 60 * 1000; // 10 min
+    const REFRESH_MS = 10 * 60 * 1000;    // refresh toutes les 10 min d'activité
+
+    const lastActivity = { current: Date.now() };
+    const lastRefresh = { current: Date.now() };
+
+    const onActivity = () => { lastActivity.current = Date.now(); };
+
+    const onUnauthorized = () => {
+      console.warn('🔒 Token expiré ou invalide — déconnexion');
+      clearSession();
+    };
+
+    const events = ['mousemove', 'click', 'keypress', 'scroll', 'touchstart'] as const;
+    events.forEach(e => window.addEventListener(e, onActivity, { passive: true }));
+    window.addEventListener('auth:unauthorized', onUnauthorized);
+
+    const intervalId = setInterval(async () => {
+      const token = localStorage.getItem('accessToken');
+      if (!token) return;
+
+      const now = Date.now();
+      const inactiveSince = now - lastActivity.current;
+
+      if (inactiveSince >= INACTIVITY_MS) {
+        console.warn('⏱ Inactivité détectée — déconnexion');
+        clearSession();
+        return;
+      }
+
+      const sinceLastRefresh = now - lastRefresh.current;
+      if (sinceLastRefresh >= REFRESH_MS) {
+        const storedRefreshToken = localStorage.getItem('refreshToken');
+        if (!storedRefreshToken) { clearSession(); return; }
+
+        try {
+          const data = await authApi.refresh(storedRefreshToken);
+          localStorage.setItem('accessToken', data.accessToken);
+          if (data.refreshToken) localStorage.setItem('refreshToken', data.refreshToken);
+          const expiresAt = Date.now() + (data.accessExpiresIn ?? TOKEN_EXPIRY_MS);
+          localStorage.setItem('tokenExpiresAt', expiresAt.toString());
+          setAccessToken(data.accessToken);
+          scheduleAutoLogout(expiresAt);
+          lastRefresh.current = now;
+          console.log('✅ Token rafraîchi avec succès');
+        } catch {
+          console.warn('❌ Échec du refresh — déconnexion');
+          clearSession();
+        }
+      }
+    }, 60_000); // vérification chaque minute
+
+    return () => {
+      events.forEach(e => window.removeEventListener(e, onActivity));
+      window.removeEventListener('auth:unauthorized', onUnauthorized);
+      clearInterval(intervalId);
+    };
   }, []);
 
-  const login = async (phone: string, password: string) => {
+  useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    const storedToken = localStorage.getItem('accessToken');
+    const storedExpiresAt = localStorage.getItem('tokenExpiresAt');
+
+    if (storedUser && storedToken && storedExpiresAt) {
+      const expiresAt = parseInt(storedExpiresAt, 10);
+      if (Date.now() < expiresAt) {
+        setUser(JSON.parse(storedUser));
+        setAccessToken(storedToken);
+        setIsAuthenticated(true);
+        scheduleAutoLogout(expiresAt);
+      } else {
+        clearSession();
+      }
+    }
+
+    return () => {
+      if (logoutTimerRef.current) clearTimeout(logoutTimerRef.current);
+    };
+  }, []);
+
+  const login = async (loginValue: string, password: string) => {
     try {
-      const response = await authApi.login(phone, password);
+      const response = await authApi.login(loginValue, password);
+      const { user: u, accessToken: token, refreshToken, accessExpiresIn } = response;
 
       const authenticatedUser: User = {
-        id: response.usid.toString(),
-        name: response.nom,
-        email: phone, // L'API ne retourne pas l'email, on utilise le téléphone
-        phone: phone, // Le numéro de téléphone
-        login: phone,
-        photo: '', // L'API ne retourne pas de photo
-        printerId: 0, // L'API ne retourne pas de printerId
+        id: u.id.toString(),
+        name: u.nom,
+        email: u.email || loginValue,
+        phone: u.phone,
+        login: u.login,
+        photo: u.photo ?? 'default.png',
+        printerId: u.printerId ?? 0,
         agence: {
-          id: response.agid,
-          name: response.agnom,
-          code: '', // L'API ne retourne pas le code
-          city: '', // L'API ne retourne pas la ville
-          currency: 'FCFA', // Valeur par défaut
+          id: u.agence.id,
+          name: u.agence.name,
+          code: u.agence.code,
+          city: u.agence.city,
+          currency: u.agence.currency,
         },
       };
 
-      setUser(authenticatedUser);
-      // L'API ne retourne pas de token, on utilise une valeur temporaire
-      const tempToken = `token_${response.usid}_${Date.now()}`;
-      setAccessToken(tempToken);
-      setIsAuthenticated(true);
+      const expiresAt = Date.now() + (accessExpiresIn ?? TOKEN_EXPIRY_MS);
 
-      // Stocker les données dans le localStorage
+      setUser(authenticatedUser);
+      setAccessToken(token);
+      setIsAuthenticated(true);
+      scheduleAutoLogout(expiresAt);
+
       localStorage.setItem('user', JSON.stringify(authenticatedUser));
-      localStorage.setItem('accessToken', tempToken);
-      localStorage.setItem('userId', response.usid.toString());
-      localStorage.setItem('agenceId', response.agid.toString());
+      localStorage.setItem('accessToken', token);
+      localStorage.setItem('refreshToken', refreshToken);
+      localStorage.setItem('tokenExpiresAt', expiresAt.toString());
+      localStorage.setItem('userId', u.id.toString());
+      localStorage.setItem('agenceId', u.agence.id.toString());
     } catch (error) {
       const apiError = error as ApiError;
       throw new Error(apiError.message || 'Erreur de connexion');
@@ -84,7 +185,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const register = async (name: string, email: string, _password: string) => {
-    // Simuler un appel API pour l'inscription
     const mockUser: User = {
       id: '1',
       name: name,
@@ -108,13 +208,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const logout = () => {
-    setUser(null);
-    setAccessToken(null);
-    setIsAuthenticated(false);
-    localStorage.removeItem('user');
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('roles');
+    clearSession();
   };
 
   return (

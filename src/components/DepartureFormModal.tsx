@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Loader2 } from 'lucide-react';
-import { gareApi, departureApi, Gare } from '../services/api';
+import { departureApi, itineraryApi, Itinerary } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
 
@@ -11,71 +11,91 @@ interface DepartureFormModalProps {
 }
 
 interface DepartureFormData {
-  departureNumber: string;
-  destination: string;
-  numberOfSeats: number;
-  busNumber: string;
-  driver: string;
-  attendant: string;
-  departureDate: string;
-  departureTime: string;
+  name: string;
+  itineraryId: string;
+  totalsSeats: number;
+  carNumber: string;
+  driverName: string;
+  convoyeurName: string;
+  date: string;
+  time: string;
+  roadFees: number;
+  washingFees: number;
+  fuelFees: number;
+  stationFees: number;
+  otherFees: number;
 }
+
+const DEFAULT_FORM: DepartureFormData = {
+  name: '',
+  itineraryId: '',
+  totalsSeats: 0,
+  carNumber: '',
+  driverName: '',
+  convoyeurName: '',
+  date: '',
+  time: '',
+  roadFees: 0,
+  washingFees: 0,
+  fuelFees: 0,
+  stationFees: 0,
+  otherFees: 0,
+};
+
+const SELECT_STYLE: React.CSSProperties = {
+  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
+  backgroundRepeat: 'no-repeat',
+  backgroundPosition: 'right 0.75rem center',
+  backgroundSize: '1.25rem',
+  paddingRight: '2.5rem',
+};
+
+const FIELD_CLASS = 'w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent';
 
 const DepartureFormModal: React.FC<DepartureFormModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const { user } = useAuth();
   const { success: showSuccess, error: showError } = useToast();
 
-  const [formData, setFormData] = useState<DepartureFormData>({
-    departureNumber: '',
-    destination: '',
-    numberOfSeats: 0,
-    busNumber: '',
-    driver: '',
-    attendant: '',
-    departureDate: '',
-    departureTime: '',
-  });
-
-  const [gares, setGares] = useState<Gare[]>([]);
-  const [isLoadingGares, setIsLoadingGares] = useState(false);
+  const [formData, setFormData] = useState<DepartureFormData>(DEFAULT_FORM);
+  const [itineraries, setItineraries] = useState<Itinerary[]>([]);
+  const [isLoadingItineraries, setIsLoadingItineraries] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Charger les gares de destination
   useEffect(() => {
-    if (isOpen && user) {
-      loadGares();
+    if (isOpen) {
+      loadItineraries();
     }
-  }, [isOpen, user]);
+  }, [isOpen]);
 
-  const loadGares = async () => {
-    if (!user) return;
+  const loadItineraries = async () => {
+    const agencyId = localStorage.getItem('agenceId');
+    if (!agencyId) return;
 
     try {
-      setIsLoadingGares(true);
-      const response = await gareApi.loadGareDest(parseInt(user.id));
-      setGares(response.data);
+      setIsLoadingItineraries(true);
+      const data = await itineraryApi.getByAgency(parseInt(agencyId));
+      setItineraries(data);
     } catch (error) {
-      console.error('Erreur lors du chargement des gares:', error);
-      showError('Erreur', 'Impossible de charger les destinations');
+      console.error('Erreur chargement itinéraires:', error);
+      showError('Erreur', 'Impossible de charger les itinéraires');
     } finally {
-      setIsLoadingGares(false);
+      setIsLoadingItineraries(false);
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    const numericFields = ['totalsSeats', 'roadFees', 'washingFees', 'fuelFees', 'stationFees', 'otherFees'];
     setFormData(prev => ({
       ...prev,
-      [name]: name === 'numberOfSeats' ? parseInt(value) || 0 : value,
+      [name]: numericFields.includes(name) ? parseInt(value) || 0 : value,
     }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validation des champs obligatoires
-    if (!formData.departureNumber || !formData.destination || !formData.numberOfSeats ||
-        !formData.departureDate || !formData.departureTime) {
+    if (!formData.name || !formData.itineraryId || !formData.totalsSeats || !formData.date || !formData.time) {
       showError('Erreur', 'Veuillez remplir tous les champs obligatoires');
       return;
     }
@@ -85,39 +105,39 @@ const DepartureFormModal: React.FC<DepartureFormModalProps> = ({ isOpen, onClose
       return;
     }
 
+    const agencyId = localStorage.getItem('agenceId');
+    if (!agencyId) {
+      showError('Erreur', 'Agence non identifiée');
+      return;
+    }
+
     try {
       setIsSubmitting(true);
 
-      // Appeler l'API pour créer le départ
-      const response = await departureApi.createDeparture({
-        user: parseInt(user.id),
-        dep: formData.departureNumber,
-        dest: parseInt(formData.destination),
-        place: formData.numberOfSeats,
-        car: formData.busNumber,
-        chauff: formData.driver,
-        conv: formData.attendant,
-        datedep: formData.departureDate,
-        hdep: formData.departureTime,
+      await departureApi.createDeparture({
+        carNumber: formData.carNumber,
+        departUser: parseInt(user.id),
+        name: formData.name,
+        totalsSeats: formData.totalsSeats,
+        driverName: formData.driverName,
+        convoyeurName: formData.convoyeurName,
+        date: formData.date,
+        time: formData.time,
+        roadFees: formData.roadFees,
+        washingFees: formData.washingFees,
+        fuelFees: formData.fuelFees,
+        stationFees: formData.stationFees,
+        otherFees: formData.otherFees,
+        agencyId: parseInt(agencyId),
+        itineraryId: formData.itineraryId,
       });
 
-      showSuccess('Succès', response.msg || 'Départ créé avec succès');
+      showSuccess('Succès', 'Départ créé avec succès');
       onSuccess();
       onClose();
-
-      // Réinitialiser le formulaire
-      setFormData({
-        departureNumber: '',
-        destination: '',
-        numberOfSeats: 0,
-        busNumber: '',
-        driver: '',
-        attendant: '',
-        departureDate: '',
-        departureTime: '',
-      });
+      setFormData(DEFAULT_FORM);
     } catch (error: any) {
-      console.error('Erreur lors de la création du départ:', error);
+      console.error('Erreur création départ:', error);
       showError('Erreur', error.message || 'Impossible de créer le départ');
     } finally {
       setIsSubmitting(false);
@@ -132,178 +152,234 @@ const DepartureFormModal: React.FC<DepartureFormModalProps> = ({ isOpen, onClose
         {/* Header */}
         <div className="sticky top-0 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-6 flex items-center justify-between">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Nouveau Départ</h2>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors">
             <X size={24} className="text-gray-500 dark:text-gray-400" />
           </button>
         </div>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="p-6">
-          <div className="space-y-6">
-            {/* Numéro du départ */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Numéro du départ
-              </label>
+        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+          {/* Nom du départ */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Nom du départ <span className="text-red-500">*</span>
+            </label>
+            <select
+              name="name"
+              value={formData.name}
+              onChange={handleChange}
+              required
+              className={FIELD_CLASS + ' appearance-none cursor-pointer'}
+              style={SELECT_STYLE}
+            >
+              <option value="">Sélectionner un numéro de départ</option>
+              {Array.from({ length: 50 }, (_, i) => i + 1).map(num => (
+                <option key={num} value={`DEPART ${num}`}>
+                  DEPART {num}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Itinéraire */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              Itinéraire <span className="text-red-500">*</span>
+            </label>
+            {isLoadingItineraries ? (
+              <div className="flex items-center gap-2 py-3">
+                <Loader2 className="animate-spin text-primary-500" size={20} />
+                <span className="text-gray-600 dark:text-gray-400">Chargement des itinéraires...</span>
+              </div>
+            ) : (
               <select
-                name="departureNumber"
-                value={formData.departureNumber}
-                onChange={handleInputChange}
+                name="itineraryId"
+                value={formData.itineraryId}
+                onChange={handleChange}
                 required
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent appearance-none cursor-pointer"
-                style={{
-                  backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-                  backgroundRepeat: 'no-repeat',
-                  backgroundPosition: 'right 0.75rem center',
-                  backgroundSize: '1.25rem',
-                  paddingRight: '2.5rem'
-                }}
+                className={FIELD_CLASS + ' appearance-none cursor-pointer'}
+                style={SELECT_STYLE}
               >
-                <option value="">Sélectionner un numéro de départ</option>
-                {Array.from({ length: 50 }, (_, i) => i + 1).map(num => (
-                  <option key={num} value={`DEPART ${num}`}>
-                    DEPART {num}
+                <option value="">Sélectionner un itinéraire</option>
+                {itineraries.map(it => (
+                  <option key={it.id} value={it.id}>
+                    {it.name}
                   </option>
                 ))}
               </select>
-            </div>
+            )}
+          </div>
 
-            {/* Destination */}
+          {/* Nombre de places & Numéro de car */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Destination
-              </label>
-              {isLoadingGares ? (
-                <div className="flex items-center justify-center py-3">
-                  <Loader2 className="animate-spin text-primary-500" size={20} />
-                  <span className="ml-2 text-gray-600 dark:text-gray-400">Chargement des destinations...</span>
-                </div>
-              ) : (
-                <select
-                  name="destination"
-                  value={formData.destination}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent appearance-none cursor-pointer"
-                  style={{
-                    backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5 7.5L10 12.5L15 7.5' stroke='%236B7280' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")`,
-                    backgroundRepeat: 'no-repeat',
-                    backgroundPosition: 'right 0.75rem center',
-                    backgroundSize: '1.25rem',
-                    paddingRight: '2.5rem'
-                  }}
-                >
-                  <option value="">Sélectionner une destination</option>
-                  {gares.map(gare => (
-                    <option key={gare.ag_id} value={gare.ag_id}>
-                      {gare.ag_nom} - {gare.ag_ville}
-                    </option>
-                  ))}
-                </select>
-              )}
-            </div>
-
-            {/* Nombre de places */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Nombre de places
+                Nombre de places <span className="text-red-500">*</span>
               </label>
               <input
                 type="number"
-                name="numberOfSeats"
-                value={formData.numberOfSeats || ''}
-                onChange={handleInputChange}
+                name="totalsSeats"
+                value={formData.totalsSeats || ''}
+                onChange={handleChange}
                 required
                 min="1"
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                className={FIELD_CLASS}
                 placeholder="Ex: 45"
               />
             </div>
-
-            {/* Numéro de car */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Numéro de car <span className="text-gray-400 text-xs">(optionnel)</span>
+                Numéro de car
               </label>
               <input
                 type="text"
-                name="busNumber"
-                value={formData.busNumber}
-                onChange={handleInputChange}
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                placeholder="Ex: BUS-001"
+                name="carNumber"
+                value={formData.carNumber}
+                onChange={handleChange}
+                className={FIELD_CLASS}
+                placeholder="Ex: AA001"
               />
             </div>
+          </div>
 
-            {/* Chauffeur */}
+          {/* Chauffeur & Convoyeur */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Chauffeur <span className="text-gray-400 text-xs">(optionnel)</span>
+                Chauffeur
               </label>
               <input
                 type="text"
-                name="driver"
-                value={formData.driver}
-                onChange={handleInputChange}
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                name="driverName"
+                value={formData.driverName}
+                onChange={handleChange}
+                className={FIELD_CLASS}
                 placeholder="Nom du chauffeur"
               />
             </div>
-
-            {/* Convoyeur */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                Convoyeur <span className="text-gray-400 text-xs">(optionnel)</span>
+                Convoyeur
               </label>
               <input
                 type="text"
-                name="attendant"
-                value={formData.attendant}
-                onChange={handleInputChange}
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                name="convoyeurName"
+                value={formData.convoyeurName}
+                onChange={handleChange}
+                className={FIELD_CLASS}
                 placeholder="Nom du convoyeur"
               />
             </div>
+          </div>
 
-            {/* Date et Heure */}
+          {/* Date & Heure */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Date de départ <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="date"
+                name="date"
+                value={formData.date}
+                onChange={handleChange}
+                required
+                className={FIELD_CLASS}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Heure de départ <span className="text-red-500">*</span>
+              </label>
+              <input
+                type="time"
+                name="time"
+                value={formData.time}
+                onChange={handleChange}
+                required
+                className={FIELD_CLASS}
+              />
+            </div>
+          </div>
+
+          {/* Frais */}
+          <div>
+            <h3 className="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-3">Frais du départ</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Date départ */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Date de départ
+                  Frais de route
                 </label>
                 <input
-                  type="date"
-                  name="departureDate"
-                  value={formData.departureDate}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  type="number"
+                  name="roadFees"
+                  value={formData.roadFees || ''}
+                  onChange={handleChange}
+                  min="0"
+                  className={FIELD_CLASS}
+                  placeholder="0"
                 />
               </div>
-
-              {/* Heure départ */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  Heure de départ
+                  Frais de lavage
                 </label>
                 <input
-                  type="time"
-                  name="departureTime"
-                  value={formData.departureTime}
-                  onChange={handleInputChange}
-                  required
-                  className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  type="number"
+                  name="washingFees"
+                  value={formData.washingFees || ''}
+                  onChange={handleChange}
+                  min="0"
+                  className={FIELD_CLASS}
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Frais de carburant
+                </label>
+                <input
+                  type="number"
+                  name="fuelFees"
+                  value={formData.fuelFees || ''}
+                  onChange={handleChange}
+                  min="0"
+                  className={FIELD_CLASS}
+                  placeholder="0"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Droit de gare
+                </label>
+                <input
+                  type="number"
+                  name="stationFees"
+                  value={formData.stationFees || ''}
+                  onChange={handleChange}
+                  min="0"
+                  className={FIELD_CLASS}
+                  placeholder="0"
+                />
+              </div>
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  Autres dépenses
+                </label>
+                <input
+                  type="number"
+                  name="otherFees"
+                  value={formData.otherFees || ''}
+                  onChange={handleChange}
+                  min="0"
+                  className={FIELD_CLASS}
+                  placeholder="0"
                 />
               </div>
             </div>
           </div>
 
           {/* Actions */}
-          <div className="mt-8 flex gap-3">
+          <div className="flex gap-3 pt-2">
             <button
               type="button"
               onClick={onClose}

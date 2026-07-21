@@ -8,6 +8,7 @@ import {
   Briefcase,
   Ticket,
   MapPin,
+  Route,
   Settings,
   LogOut,
   User,
@@ -39,6 +40,7 @@ const menuSections: MenuSection[] = [
       { id: 'dashboard', label: 'Tableau de bord', icon: <LayoutDashboard size={20} />, path: '/' },
       { id: 'departs', label: 'Départs', icon: <Car size={20} />, path: '/departs' },
       { id: 'destinations', label: 'Destinations', icon: <MapPin size={20} />, path: '/destinations' },
+      { id: 'itineraires', label: 'Itinéraires', icon: <Route size={20} />, path: '/itineraires' },
     ]
   },
   {

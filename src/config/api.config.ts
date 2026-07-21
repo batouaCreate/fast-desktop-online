@@ -1,7 +1,8 @@
 export const API_CONFIG = {
-  baseUrl: 'https://guichet.createsarl.com/api',
+  baseUrl: 'https://fastapidev.createdsarl.com/v1',
   endpoints: {
-    login: '/signin',
+    login: '/auth/admins',
+    refreshToken: '/auth/refresh',
     loadAllDepartures: '/loadalldep',
     loadGareDest: '/loadgaredest',
     addDepart: '/adddepart',
@@ -13,6 +14,9 @@ export const API_CONFIG = {
     ticketByUser: '/ticketbyuser',
     loadDest: '/loaddest',
     addDestination: '/adddestination',
+    destinations: '/destinations',
+    itineraries: '/itineraries',
+    departures: '/departures',
     displaySiege: '/displaysiege',
     sellBillet: '/sellbillet',
     dashboard: '/dashboard',

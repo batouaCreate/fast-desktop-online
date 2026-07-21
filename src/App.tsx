@@ -15,6 +15,7 @@ import Reception from './pages/Reception';
 import Bagages from './pages/Bagages';
 import Billets from './pages/Billets';
 import Destinations from './pages/Destinations';
+import Itineraires from './pages/Itineraires';
 import Settings from './pages/Settings';
 import Chauffeurs from './pages/Chauffeurs';
 import Convoyeurs from './pages/Convoyeurs';
@@ -61,6 +62,16 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <Destinations />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+            <Route
+              path="/itineraires"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <Itineraires />
                   </Layout>
                 </ProtectedRoute>
               }

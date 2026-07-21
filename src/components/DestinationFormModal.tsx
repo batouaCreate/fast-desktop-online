@@ -1,79 +1,99 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, Loader2 } from 'lucide-react';
-import { destinationApi } from '../services/api';
+import { destinationApi, DestinationV2 } from '../services/api';
 import { useToast } from '../contexts/ToastContext';
 
 interface DestinationFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
+  destination?: DestinationV2;
 }
 
 interface DestinationFormData {
-  destination: string;
-  prix: number;
+  city: string;
+  price: string;
 }
 
-const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onClose, onSuccess }) => {
+const FIELD_CLASS = 'w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent';
+
+const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onClose, onSuccess, destination }) => {
   const { success: showSuccess, error: showError } = useToast();
+  const isEditMode = !!destination;
 
   const [formData, setFormData] = useState<DestinationFormData>({
-    destination: '',
-    prix: 0,
+    city: '',
+    price: '',
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  useEffect(() => {
+    if (isOpen) {
+      if (destination) {
+        setFormData({
+          city: destination.city,
+          price: String(destination.price),
+        });
+      } else {
+        setFormData({ city: '', price: '' });
+      }
+    }
+  }, [isOpen, destination]);
+
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === 'prix' ? parseInt(value) || 0 : value,
-    }));
+    setFormData(prev => ({ ...prev, [name]: value }));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    // Validation des champs obligatoires
-    if (!formData.destination.trim()) {
+    if (!formData.city.trim()) {
       showError('Erreur', 'Veuillez saisir le nom de la destination');
       return;
     }
 
-    if (!formData.prix || formData.prix <= 0) {
+    if (!formData.price || parseInt(formData.price) <= 0) {
       showError('Erreur', 'Veuillez saisir un prix valide');
       return;
     }
 
     const agenceId = localStorage.getItem('agenceId');
-    if (!agenceId) {
-      showError('Erreur', 'ID de l\'agence non trouvé');
+    const userId = localStorage.getItem('userId');
+
+    if (!agenceId || !userId) {
+      showError('Erreur', 'Session invalide, veuillez vous reconnecter');
       return;
     }
 
     try {
       setIsSubmitting(true);
 
-      // Appeler l'API pour créer la destination
-      const response = await destinationApi.addDestination({
-        agid: parseInt(agenceId),
-        destination: formData.destination.trim(),
-        prix: formData.prix,
-      });
+      if (isEditMode && destination) {
+        await destinationApi.updateDestination(destination.id, {
+          userId: parseInt(userId),
+          agency: { value: agenceId },
+          city: formData.city.trim().toUpperCase(),
+          price: parseInt(formData.price),
+        });
+        showSuccess('Succès', 'Destination modifiée avec succès');
+      } else {
+        await destinationApi.addDestination({
+          userId: parseInt(userId),
+          agency: { value: agenceId },
+          city: formData.city.trim().toUpperCase(),
+          price: formData.price,
+        });
+        showSuccess('Succès', 'Destination ajoutée avec succès');
+      }
 
-      showSuccess('Succès', response.msg || 'Destination ajoutée avec succès');
       onSuccess();
       onClose();
-
-      // Réinitialiser le formulaire
-      setFormData({
-        destination: '',
-        prix: 0,
-      });
+      setFormData({ city: '', price: '' });
     } catch (error: any) {
-      console.error('Erreur lors de l\'ajout de la destination:', error);
-      showError('Erreur', error.message || 'Impossible d\'ajouter la destination');
+      console.error('Erreur lors de la sauvegarde de la destination:', error);
+      showError('Erreur', error.message || 'Impossible de sauvegarder la destination');
     } finally {
       setIsSubmitting(false);
     }
@@ -86,7 +106,9 @@ const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onC
       <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-2xl w-full max-w-md">
         {/* Header */}
         <div className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 p-6 flex items-center justify-between rounded-t-2xl">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">Nouvelle Destination</h2>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">
+            {isEditMode ? 'Modifier la destination' : 'Nouvelle Destination'}
+          </h2>
           <button
             onClick={onClose}
             className="p-2 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
@@ -98,19 +120,19 @@ const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onC
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-6">
           <div className="space-y-6">
-            {/* Destination */}
+            {/* Ville */}
             <div>
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                 Nom de la destination <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
-                name="destination"
-                value={formData.destination}
+                name="city"
+                value={formData.city}
                 onChange={handleInputChange}
                 required
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                placeholder="Ex: ABIDJAN"
+                className={FIELD_CLASS}
+                placeholder="Ex: SAN PEDRO"
               />
             </div>
 
@@ -121,14 +143,14 @@ const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onC
               </label>
               <input
                 type="number"
-                name="prix"
-                value={formData.prix || ''}
+                name="price"
+                value={formData.price}
                 onChange={handleInputChange}
                 required
                 min="1"
                 step="1"
-                className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-                placeholder="Ex: 3000"
+                className={FIELD_CLASS}
+                placeholder="Ex: 6600"
               />
             </div>
           </div>
@@ -150,10 +172,10 @@ const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onC
               {isSubmitting ? (
                 <>
                   <Loader2 className="animate-spin" size={20} />
-                  Ajout...
+                  {isEditMode ? 'Modification...' : 'Ajout...'}
                 </>
               ) : (
-                'Ajouter'
+                isEditMode ? 'Modifier' : 'Ajouter'
               )}
             </button>
           </div>
