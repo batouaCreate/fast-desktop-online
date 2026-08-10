@@ -6,6 +6,7 @@ interface LayoutProps {
 }
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
+
   return (
     <div className="flex h-screen overflow-hidden bg-white dark:bg-gray-950">
       <Sidebar />

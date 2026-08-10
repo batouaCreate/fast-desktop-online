@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, User, CreditCard, Loader2, Printer, MapPin } from 'lucide-react';
 import { DepartureV2, destinationApi, DestinationV2, reservationApi } from '../services/api';
+import { API_CONFIG } from '../config/api.config';
 import { useToast } from '../contexts/ToastContext';
 import { ThermalPrinter, TicketBuilder } from '../services/printer';
 import { PhoneInput } from 'react-international-phone';
@@ -35,6 +36,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, onSuccess, d
     phone: '',
   });
   const [isSelling, setIsSelling] = useState(false);
+  const [ticketType, setTicketType] = useState<string>('');
   const { error: showError, success: showSuccess } = useToast();
 
   // Charger les destinations disponibles
@@ -133,11 +135,15 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, onSuccess, d
     );
   };
 
-  // Calculer le prix basé sur la destination sélectionnée
+  // Calculer le prix basé sur la destination sélectionnée et le type de ticket
   const getDestinationPrice = (): number => {
     if (!selectedDestination) return 0;
     const destination = destinations.find(d => d.id === selectedDestination);
-    return destination ? Number(destination.price) : 0;
+    if (!destination) return 0;
+    const basePrice = Number(destination.price);
+    if (ticketType === 'GRATUIT') return 0;
+    if (ticketType === 'ALLER_RETOUR') return basePrice * 2 - 500;
+    return basePrice;
   };
 
   const totalPrice = getDestinationPrice() * selectedSeats.length;
@@ -173,14 +179,22 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, onSuccess, d
       const seatNumbers = selectedSeats.map(s => s.replace('S', ''));
       const paymentReference = crypto.randomUUID();
 
-      const responseData = await reservationApi.sellGuichet(departure.id, {
+      const sellPayload = {
         destinationId: selectedDestination,
         userId: parseInt(userId),
         customerName: customerInfo.name,
         customerPhone: customerInfo.phone,
         seatNumbers,
         paymentReference,
-      });
+        type: ticketType || undefined,
+      };
+
+      const sellUrl = `${API_CONFIG.baseUrl}/reservations/guichet/${departure.id}`;
+      console.log('🎫 === VENTE TICKET ===');
+      console.log('📡 URL:', sellUrl);
+      console.log('📦 Payload:', JSON.stringify(sellPayload, null, 2));
+
+      const responseData = await reservationApi.sellGuichet(departure.id, sellPayload);
 
       showSuccess('Succès', 'Ticket vendu avec succès');
 
@@ -455,6 +469,37 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, onSuccess, d
                       Prix unitaire: {getDestinationPrice().toLocaleString()} FCFA
                     </p>
                   )}
+                </div>
+
+                {/* Type de ticket */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                    Type de ticket
+                  </label>
+                  <div className="flex gap-3">
+                    <button
+                      type="button"
+                      onClick={() => setTicketType(ticketType === 'GRATUIT' ? '' : 'GRATUIT')}
+                      className={`flex-1 py-2 px-4 rounded-xl border-2 font-medium text-sm transition-all ${
+                        ticketType === 'GRATUIT'
+                          ? 'border-green-500 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+                          : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-green-400'
+                      }`}
+                    >
+                      Ticket gratuit
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setTicketType(ticketType === 'ALLER_RETOUR' ? '' : 'ALLER_RETOUR')}
+                      className={`flex-1 py-2 px-4 rounded-xl border-2 font-medium text-sm transition-all ${
+                        ticketType === 'ALLER_RETOUR'
+                          ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-400'
+                          : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:border-blue-400'
+                      }`}
+                    >
+                      Aller retour
+                    </button>
+                  </div>
                 </div>
 
                 <div>

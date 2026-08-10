@@ -7,6 +7,8 @@ import DepartureFormModal from '../components/DepartureFormModal';
 import { departureApi, DepartureV2 } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useToast } from '../contexts/ToastContext';
+import { useMercure } from '../hooks/useMercure';
+import { NOTIFICATIONS_TOPIC } from '../services/mercure';
 
 const Departs: React.FC = () => {
   // Initialiser les dates: aujourd'hui (J+0) jusqu'à dans 7 jours (J+7)
@@ -23,15 +25,77 @@ const Departs: React.FC = () => {
     return sevenDays;
   };
 
-  const [selectedDeparture, setSelectedDeparture] = useState<DepartureV2 | null>(null);
+  const [selectedDepartureId, setSelectedDepartureId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [departs, setDeparts] = useState<DepartureV2[]>([]);
+  const selectedDeparture = departs.find(d => d.id === selectedDepartureId) ?? null;
   const [isLoading, setIsLoading] = useState(true);
   const [startDate, setStartDate] = useState<Date | null>(getTodayStart());
   const [endDate, setEndDate] = useState<Date | null>(getSevenDaysLater());
   const { user } = useAuth();
   const { error: showError, showToast } = useToast();
+
+  useMercure<{
+    type?: string;
+    title: string;
+    message?: string;
+    body?: string;
+    action?: string;
+    seat?: string;
+    departure?: { name: string; date: string; [key: string]: unknown };
+    destination?: unknown;
+  }>(
+    [NOTIFICATIONS_TOPIC],
+    (data) => {
+      const VALID_TYPES = ['success', 'error', 'warning', 'info'] as const;
+      type ToastType = typeof VALID_TYPES[number];
+      const type: ToastType = VALID_TYPES.includes(data.type as ToastType) ? data.type as ToastType : 'info';
+      let notifMessage = "";
+      if (data.action === "SELL_AGENCE" && data.departure) { notifMessage = `Un client vient d'acheter le siège ${data.seat} du départ ${data.departure.name} du ${data.departure.date}`; }
+      if (data.action === "RESERVED_ONLINE" && data.departure) { notifMessage = `Un client vient de réserver en ligne le siège ${data.seat} du départ ${data.departure.name} du ${data.departure.date}`; }
+      if (data.action === "BUY_ONLINE" && data.departure) { notifMessage = `Un client vient de payer en ligne le siège ${data.seat} du départ ${data.departure.name} du ${data.departure.date}`; }
+
+      if (data.departure) {
+        const exists = departs.some((d) => d.id === data.departure!.id);
+        if (!exists) return;
+
+        if (data.seat) {
+          setDeparts((prev) =>
+            prev.map((d) => {
+              if (d.id !== data.departure!.id) return d;
+              return {
+                ...d,
+                seats: d.seats?.map((s) =>
+                  s.seatNumber === data.seat ? { ...s, status: 'OCCUPIED' as const } : s
+                ),
+              };
+            })
+          );
+        }
+      }
+
+      showToast(type, data.title, notifMessage, 8000);
+
+      try {
+        const ctx = new AudioContext();
+        const notes = [523, 659, 784]; // Do Mi Sol
+        notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.type = 'sine';
+          osc.frequency.value = freq;
+          const start = ctx.currentTime + i * 0.15;
+          gain.gain.setValueAtTime(0.3, start);
+          gain.gain.exponentialRampToValueAtTime(0.001, start + 0.3);
+          osc.start(start);
+          osc.stop(start + 0.3);
+        });
+      } catch { /* navigateur sans Web Audio */ }
+    },
+  );
 
   // États pour le modal de modification
   const [showEditModal, setShowEditModal] = useState(false);
@@ -77,7 +141,7 @@ const Departs: React.FC = () => {
   }, [user]);
 
   const handleVendreTicket = (depart: DepartureV2) => {
-    setSelectedDeparture(depart);
+    setSelectedDepartureId(depart.id);
     setIsModalOpen(true);
   };
 
