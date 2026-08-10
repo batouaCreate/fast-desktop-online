@@ -12,6 +12,9 @@
         },
         {
           "url": "https://fastapidev.createdsarl.com/*"
+        },
+        {
+          "url": "https://mercure.createdsarl.com/*"
         }
       ]
     }
