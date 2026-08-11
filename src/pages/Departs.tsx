@@ -43,7 +43,7 @@ const Departs: React.FC = () => {
     body?: string;
     action?: string;
     seat?: string;
-    departure?: { name: string; date: string; [key: string]: unknown };
+    departure?: { id: number; name: string; date: string; [key: string]: unknown };
     destination?: unknown;
   }>(
     [NOTIFICATIONS_TOPIC],
