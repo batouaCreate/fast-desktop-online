@@ -135,15 +135,13 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, onSuccess, d
     );
   };
 
-  // Calculer le prix basé sur la destination sélectionnée et le type de ticket
   const getDestinationPrice = (): number => {
     if (!selectedDestination) return 0;
     const destination = destinations.find(d => d.id === selectedDestination);
     if (!destination) return 0;
-    const basePrice = Number(destination.price);
     if (ticketType === 'GRATUIT') return 0;
-    if (ticketType === 'ALLER_RETOUR') return basePrice * 2 - 500;
-    return basePrice;
+    if (ticketType === 'ALLER_RETOUR') return destination.roundTripPrice ? Number(destination.roundTripPrice) : Number(destination.price);
+    return Number(destination.price);
   };
 
   const totalPrice = getDestinationPrice() * selectedSeats.length;
@@ -202,8 +200,11 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, onSuccess, d
         await printTicket(responseData);
       }
 
+      setSelectedSeats([]);
+      setCustomerInfo({ name: '', phone: '' });
+      setSelectedDestination(null);
+      setTicketType('');
       onSuccess?.();
-      onClose();
     } catch (error: any) {
       console.error('Erreur lors de la vente du ticket:', error);
       showError('Erreur', error.message || 'Impossible de vendre le ticket');
@@ -466,7 +467,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, onSuccess, d
                   </div>
                   {selectedDestination && (
                     <p className="text-sm text-primary-600 dark:text-primary-400 mt-1 font-medium">
-                      Prix unitaire: {getDestinationPrice().toLocaleString()} FCFA
+                      {ticketType === 'ALLER_RETOUR' ? 'Prix aller retour' : 'Prix unitaire'}: {getDestinationPrice().toLocaleString()} FCFA
                     </p>
                   )}
                 </div>
@@ -543,7 +544,7 @@ const TicketModal: React.FC<TicketModalProps> = ({ isOpen, onClose, onSuccess, d
                   </div>
                   {selectedSeats.length > 1 && selectedDestination && (
                     <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
-                      <span>{selectedSeats.length} × {getDestinationPrice().toLocaleString()} FCFA</span>
+                      <span>{selectedSeats.length} × {getDestinationPrice().toLocaleString()} FCFA {ticketType === 'ALLER_RETOUR' ? '(aller retour)' : ''}</span>
                     </div>
                   )}
                   <div className="flex justify-between text-lg font-bold pt-2 border-t border-primary-200 dark:border-primary-700">

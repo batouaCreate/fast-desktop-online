@@ -13,6 +13,7 @@ interface DestinationFormModalProps {
 interface DestinationFormData {
   city: string;
   price: string;
+  roundTripPrice: string;
 }
 
 const FIELD_CLASS = 'w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent';
@@ -24,6 +25,7 @@ const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onC
   const [formData, setFormData] = useState<DestinationFormData>({
     city: '',
     price: '',
+    roundTripPrice: '',
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -34,9 +36,10 @@ const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onC
         setFormData({
           city: destination.city,
           price: String(destination.price),
+          roundTripPrice: destination.roundTripPrice != null ? String(destination.roundTripPrice) : '',
         });
       } else {
-        setFormData({ city: '', price: '' });
+        setFormData({ city: '', price: '', roundTripPrice: '' });
       }
     }
   }, [isOpen, destination]);
@@ -76,6 +79,7 @@ const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onC
           agency: { value: agenceId },
           city: formData.city.trim().toUpperCase(),
           price: parseInt(formData.price),
+          ...(formData.roundTripPrice ? { roundTripPrice: parseInt(formData.roundTripPrice) } : {}),
         });
         showSuccess('Succès', 'Destination modifiée avec succès');
       } else {
@@ -84,13 +88,14 @@ const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onC
           agency: { value: agenceId },
           city: formData.city.trim().toUpperCase(),
           price: formData.price,
+          ...(formData.roundTripPrice ? { roundTripPrice: formData.roundTripPrice } : {}),
         });
         showSuccess('Succès', 'Destination ajoutée avec succès');
       }
 
       onSuccess();
       onClose();
-      setFormData({ city: '', price: '' });
+      setFormData({ city: '', price: '', roundTripPrice: '' });
     } catch (error: any) {
       console.error('Erreur lors de la sauvegarde de la destination:', error);
       showError('Erreur', error.message || 'Impossible de sauvegarder la destination');
@@ -151,6 +156,23 @@ const DestinationFormModal: React.FC<DestinationFormModalProps> = ({ isOpen, onC
                 step="1"
                 className={FIELD_CLASS}
                 placeholder="Ex: 6600"
+              />
+            </div>
+
+            {/* Prix Aller retour */}
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                Prix Aller retour (FCFA)
+              </label>
+              <input
+                type="number"
+                name="roundTripPrice"
+                value={formData.roundTripPrice}
+                onChange={handleInputChange}
+                min="1"
+                step="1"
+                className={FIELD_CLASS}
+                placeholder="Ex: 12000"
               />
             </div>
           </div>

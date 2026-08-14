@@ -383,6 +383,7 @@ export interface DestinationV2 {
   agencyId: number;
   city: string;
   price: number;
+  roundTripPrice?: number;
   createdDate?: string;
   [key: string]: any;
 }
@@ -398,6 +399,7 @@ export interface AddDestinationRequest {
   agency: { value: string };
   city: string;
   price: string;
+  roundTripPrice?: string;
 }
 
 export interface UpdateDestinationRequest {
@@ -405,6 +407,7 @@ export interface UpdateDestinationRequest {
   agency: { value: string };
   city: string;
   price: number;
+  roundTripPrice?: number;
 }
 
 export interface AddDestinationResponse {
@@ -723,9 +726,12 @@ export const departureApi = {
     }
   },
 
-  async getByAgency(agencyId: number): Promise<DepartureV2[]> {
-    const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.departures}?agencyId=${agencyId}`;
-    logRequest(url, { agencyId });
+  async getByAgency(agencyId: number, startDate?: string, endDate?: string): Promise<DepartureV2[]> {
+    const params = new URLSearchParams({ agencyId: String(agencyId) });
+    if (startDate) params.append('startDate', startDate);
+    if (endDate) params.append('endDate', endDate);
+    const url = `${API_CONFIG.baseUrl}${API_CONFIG.endpoints.departures}?${params.toString()}`;
+    logRequest(url, { agencyId, startDate, endDate });
 
     try {
       const response = await apiFetch(url, {

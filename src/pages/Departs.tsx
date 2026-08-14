@@ -120,13 +120,18 @@ const Departs: React.FC = () => {
   });
   const [updatingFrais, setUpdatingFrais] = useState(false);
 
+  const formatDate = (date: Date | null): string | undefined => {
+    if (!date) return undefined;
+    return date.toISOString().slice(0, 10);
+  };
+
   const loadDeparts = async () => {
     const agencyId = localStorage.getItem('agenceId');
     if (!agencyId) return;
 
     try {
       setIsLoading(true);
-      const data = await departureApi.getByAgency(parseInt(agencyId));
+      const data = await departureApi.getByAgency(parseInt(agencyId), formatDate(startDate), formatDate(endDate));
       setDeparts(data);
     } catch (error) {
       console.error('Erreur lors du chargement des départs:', error);
@@ -138,7 +143,7 @@ const Departs: React.FC = () => {
 
   useEffect(() => {
     loadDeparts();
-  }, [user]);
+  }, [user, startDate, endDate]);
 
   const handleVendreTicket = (depart: DepartureV2) => {
     setSelectedDepartureId(depart.id);
